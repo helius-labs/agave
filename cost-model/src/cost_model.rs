@@ -221,17 +221,7 @@ impl CostModel {
 
     /// eventually, potentially determine account data size of all writable accounts
     /// at the moment, calculate account data size of account creation
-<<<<<<< HEAD
     fn calculate_account_data_size(transaction: &SanitizedTransaction) -> u64 {
-        transaction
-            .message()
-            .program_instructions_iter()
-            .map(|(program_id, instruction)| {
-                Self::calculate_account_data_size_on_instruction(program_id, instruction)
-            })
-            .sum()
-=======
-    fn calculate_allocated_accounts_data_size(transaction: &SanitizedTransaction) -> u64 {
         let mut tx_attempted_allocation_size: u64 = 0;
         for (program_id, instruction) in transaction.message().program_instructions_iter() {
             match Self::calculate_account_data_size_on_instruction(program_id, instruction) {
@@ -263,7 +253,6 @@ impl CostModel {
         // lead to transaction failure.
         (MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION as u64)
             .min(tx_attempted_allocation_size)
->>>>>>> 443246dee0 (fix: set allocation size to 0 for transactions known to fail (#2966))
     }
 }
 
@@ -290,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_allocated_accounts_data_size_no_allocation() {
+    fn test_calculate_account_data_size_no_allocation() {
         let transaction = Transaction::new_unsigned(Message::new(
             &[system_instruction::transfer(
                 &Pubkey::new_unique(),
@@ -301,14 +290,11 @@ mod tests {
         ));
         let sanitized_tx = SanitizedTransaction::from_transaction_for_tests(transaction);
 
-        assert_eq!(
-            CostModel::calculate_allocated_accounts_data_size(&sanitized_tx),
-            0
-        );
+        assert_eq!(CostModel::calculate_account_data_size(&sanitized_tx), 0);
     }
 
     #[test]
-    fn test_calculate_allocated_accounts_data_size_multiple_allocations() {
+    fn test_calculate_account_data_size_multiple_allocations() {
         let space1 = 100;
         let space2 = 200;
         let transaction = Transaction::new_unsigned(Message::new(
@@ -327,13 +313,13 @@ mod tests {
         let sanitized_tx = SanitizedTransaction::from_transaction_for_tests(transaction);
 
         assert_eq!(
-            CostModel::calculate_allocated_accounts_data_size(&sanitized_tx),
+            CostModel::calculate_account_data_size(&sanitized_tx),
             space1 + space2
         );
     }
 
     #[test]
-    fn test_calculate_allocated_accounts_data_size_max_limit() {
+    fn test_calculate_account_data_size_max_limit() {
         let spaces = [MAX_PERMITTED_DATA_LENGTH, MAX_PERMITTED_DATA_LENGTH, 100];
         assert!(
             spaces.iter().copied().sum::<u64>()
@@ -368,13 +354,13 @@ mod tests {
         let sanitized_tx = SanitizedTransaction::from_transaction_for_tests(transaction);
 
         assert_eq!(
-            CostModel::calculate_allocated_accounts_data_size(&sanitized_tx),
+            CostModel::calculate_account_data_size(&sanitized_tx),
             MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION as u64,
         );
     }
 
     #[test]
-    fn test_calculate_allocated_accounts_data_size_overflow() {
+    fn test_calculate_account_data_size_overflow() {
         let transaction = Transaction::new_unsigned(Message::new(
             &[
                 system_instruction::create_account(
@@ -392,12 +378,12 @@ mod tests {
 
         assert_eq!(
             0, // SystemProgramAccountAllocation::Failed,
-            CostModel::calculate_allocated_accounts_data_size(&sanitized_tx),
+            CostModel::calculate_account_data_size(&sanitized_tx),
         );
     }
 
     #[test]
-    fn test_calculate_allocated_accounts_data_size_invalid_ix() {
+    fn test_calculate_account_data_size_invalid_ix() {
         let transaction = Transaction::new_unsigned(Message::new(
             &[
                 system_instruction::allocate(&Pubkey::new_unique(), 100),
@@ -409,7 +395,7 @@ mod tests {
 
         assert_eq!(
             0, // SystemProgramAccountAllocation::Failed,
-            CostModel::calculate_allocated_accounts_data_size(&sanitized_tx),
+            CostModel::calculate_account_data_size(&sanitized_tx),
         );
     }
 
