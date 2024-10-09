@@ -105,8 +105,8 @@ use {
     },
     std::{
         any::type_name,
-        cmp::{max, min},
-        collections::{HashMap, HashSet},
+        cmp::{max, min, Reverse},
+        collections::{BinaryHeap, HashMap, HashSet},
         convert::TryFrom,
         net::SocketAddr,
         str::FromStr,
@@ -3463,7 +3463,7 @@ pub mod rpc_full {
             meta: Self::Metadata,
             data: String,
             config: Option<RpcSimulateTransactionConfig>,
-        ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>>;
+        ) -> Result<RpcResponse<RpcSimulateTransactionResult>>;
 
         #[rpc(meta, name = "minimumLedgerSlot")]
         fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot>;
@@ -3883,144 +3883,132 @@ pub mod rpc_full {
             meta: Self::Metadata,
             data: String,
             config: Option<RpcSimulateTransactionConfig>,
-        ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
+        ) -> Result<RpcResponse<RpcSimulateTransactionResult>> {
             debug!("simulate_transaction rpc request received");
-            Box::pin(async move {
-                let RpcSimulateTransactionConfig {
-                    sig_verify,
-                    replace_recent_blockhash,
-                    commitment,
-                    encoding,
-                    accounts: config_accounts,
-                    min_context_slot,
-                    inner_instructions: enable_cpi_recording,
-                } = config.unwrap_or_default();
-                let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
-                let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
-                    Error::invalid_params(format!(
-                        "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
-                    ))
-                })?;
-                let (_, mut unsanitized_tx) =
-                    decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
+            let RpcSimulateTransactionConfig {
+                sig_verify,
+                replace_recent_blockhash,
+                commitment,
+                encoding,
+                accounts: config_accounts,
+                min_context_slot,
+                inner_instructions: enable_cpi_recording,
+            } = config.unwrap_or_default();
+            let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+            let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
+                Error::invalid_params(format!(
+                    "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+                ))
+            })?;
+            let (_, mut unsanitized_tx) =
+                decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
 
-                let bank = meta.get_bank_with_config(RpcContextConfig {
-                    commitment,
-                    min_context_slot,
-                })?;
-
-                let mut blockhash: Option<RpcBlockhash> = None;
-                if replace_recent_blockhash {
-                    if sig_verify {
-                        return Err(Error::invalid_params(
-                            "sigVerify may not be used with replaceRecentBlockhash",
-                        ));
-                    }
-                    let recent_blockhash = bank.last_blockhash();
-                    unsanitized_tx
-                        .message
-                        .set_recent_blockhash(recent_blockhash);
-                    let last_valid_block_height = bank
-                        .get_blockhash_last_valid_block_height(&recent_blockhash)
-                        .expect("bank blockhash queue should contain blockhash");
-                    blockhash.replace(RpcBlockhash {
-                        blockhash: recent_blockhash.to_string(),
-                        last_valid_block_height,
-                    });
-                }
-
-                let transaction =
-                    sanitize_transaction(unsanitized_tx, &*bank, bank.get_reserved_account_keys())?;
+            let bank = &*meta.get_bank_with_config(RpcContextConfig {
+                commitment,
+                min_context_slot,
+            })?;
+            let mut blockhash: Option<RpcBlockhash> = None;
+            if replace_recent_blockhash {
                 if sig_verify {
-                    verify_transaction(&transaction, &bank.feature_set)?;
+                    return Err(Error::invalid_params(
+                        "sigVerify may not be used with replaceRecentBlockhash",
+                    ));
+                }
+                let recent_blockhash = bank.last_blockhash();
+                unsanitized_tx
+                    .message
+                    .set_recent_blockhash(recent_blockhash);
+                let last_valid_block_height = bank
+                    .get_blockhash_last_valid_block_height(&recent_blockhash)
+                    .expect("bank blockhash queue should contain blockhash");
+                blockhash.replace(RpcBlockhash {
+                    blockhash: recent_blockhash.to_string(),
+                    last_valid_block_height,
+                });
+            }
+
+            let transaction =
+                sanitize_transaction(unsanitized_tx, bank, bank.get_reserved_account_keys())?;
+            if sig_verify {
+                verify_transaction(&transaction, &bank.feature_set)?;
+            }
+
+            let TransactionSimulationResult {
+                result,
+                logs,
+                post_simulation_accounts,
+                units_consumed,
+                return_data,
+                inner_instructions,
+            } = bank.simulate_transaction(&transaction, enable_cpi_recording);
+
+            let account_keys = transaction.message().account_keys();
+            let number_of_accounts = account_keys.len();
+
+            let accounts = if let Some(config_accounts) = config_accounts {
+                let accounts_encoding = config_accounts
+                    .encoding
+                    .unwrap_or(UiAccountEncoding::Base64);
+
+                if accounts_encoding == UiAccountEncoding::Binary
+                    || accounts_encoding == UiAccountEncoding::Base58
+                {
+                    return Err(Error::invalid_params("base58 encoding not supported"));
                 }
 
-                let bank_clone = bank.clone();
+                if config_accounts.addresses.len() > number_of_accounts {
+                    return Err(Error::invalid_params(format!(
+                        "Too many accounts provided; max {number_of_accounts}"
+                    )));
+                }
 
-                let result = meta
-                    .runtime
-                    .spawn_blocking(move || {
-                        let TransactionSimulationResult {
-                            result,
-                            logs,
-                            post_simulation_accounts,
-                            units_consumed,
-                            return_data,
-                            inner_instructions,
-                        } = bank_clone.simulate_transaction(&transaction, enable_cpi_recording);
+                if result.is_err() {
+                    Some(vec![None; config_accounts.addresses.len()])
+                } else {
+                    let mut post_simulation_accounts_map = HashMap::new();
+                    for (pubkey, data) in post_simulation_accounts {
+                        post_simulation_accounts_map.insert(pubkey, data);
+                    }
 
-                        let account_keys = transaction.message().account_keys();
-                        let number_of_accounts = account_keys.len();
-
-                        let accounts = if let Some(config_accounts) = config_accounts {
-                            let accounts_encoding = config_accounts
-                                .encoding
-                                .unwrap_or(UiAccountEncoding::Base64);
-
-                            if accounts_encoding == UiAccountEncoding::Binary
-                                || accounts_encoding == UiAccountEncoding::Base58
-                            {
-                                return Err(Error::invalid_params("base58 encoding not supported"));
-                            }
-
-                            if config_accounts.addresses.len() > number_of_accounts {
-                                return Err(Error::invalid_params(format!(
-                                    "Too many accounts provided; max {number_of_accounts}"
-                                )));
-                            }
-
-                            if result.is_err() {
-                                Some(vec![None; config_accounts.addresses.len()])
-                            } else {
-                                let mut post_simulation_accounts_map = HashMap::new();
-                                for (pubkey, data) in post_simulation_accounts {
-                                    post_simulation_accounts_map.insert(pubkey, data);
-                                }
-
-                                Some(
-                                    config_accounts
-                                        .addresses
-                                        .iter()
-                                        .map(|address_str| {
-                                            let pubkey = verify_pubkey(address_str)?;
-                                            get_encoded_account(
-                                                &bank_clone,
-                                                &pubkey,
-                                                accounts_encoding,
-                                                None,
-                                                Some(&post_simulation_accounts_map),
-                                            )
-                                        })
-                                        .collect::<Result<Vec<_>>>()?,
+                    Some(
+                        config_accounts
+                            .addresses
+                            .iter()
+                            .map(|address_str| {
+                                let pubkey = verify_pubkey(address_str)?;
+                                get_encoded_account(
+                                    bank,
+                                    &pubkey,
+                                    accounts_encoding,
+                                    None,
+                                    Some(&post_simulation_accounts_map),
                                 )
-                            }
-                        } else {
-                            None
-                        };
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    )
+                }
+            } else {
+                None
+            };
 
-                        let inner_instructions = inner_instructions.map(|info| {
-                            map_inner_instructions(info)
-                                .map(|converted| {
-                                    parse_ui_inner_instructions(converted, &account_keys)
-                                })
-                                .collect()
-                        });
+            let inner_instructions = inner_instructions.map(|info| {
+                map_inner_instructions(info)
+                    .map(|converted| parse_ui_inner_instructions(converted, &account_keys))
+                    .collect()
+            });
 
-                        Ok(RpcSimulateTransactionResult {
-                            err: result.err(),
-                            logs: Some(logs),
-                            accounts,
-                            units_consumed: Some(units_consumed),
-                            return_data: return_data.map(|return_data| return_data.into()),
-                            inner_instructions,
-                            replacement_blockhash: blockhash,
-                        })
-                    })
-                    .await
-                    .expect("rpc: simulate_transaction panicked")?;
-
-                Ok(new_response(&bank, result))
-            })
+            Ok(new_response(
+                bank,
+                RpcSimulateTransactionResult {
+                    err: result.err(),
+                    logs: Some(logs),
+                    accounts,
+                    units_consumed: Some(units_consumed),
+                    return_data: return_data.map(|return_data| return_data.into()),
+                    inner_instructions,
+                    replacement_blockhash: blockhash,
+                },
+            ))
         }
 
         fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot> {
