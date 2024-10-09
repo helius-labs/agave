@@ -166,21 +166,9 @@ pub struct JsonRpcConfig {
 impl Default for JsonRpcConfig {
     fn default() -> Self {
         Self {
-            enable_rpc_transaction_history: Default::default(),
-            enable_extended_tx_metadata_storage: Default::default(),
-            faucet_addr: Option::default(),
-            health_check_slot_distance: Default::default(),
-            rpc_bigtable_config: Option::default(),
-            max_multiple_accounts: Option::default(),
-            account_indexes: AccountSecondaryIndexes::default(),
-            rpc_threads: 1,
-            rpc_blocking_threads: 1,
-            rpc_niceness_adj: Default::default(),
-            full_api: Default::default(),
-            obsolete_v1_7_api: Default::default(),
-            rpc_scan_and_fix_roots: Default::default(),
-            max_request_body_size: Option::default(),
-            disable_health_check: Default::default(),
+           full_api: true,
+           disable_health_check: true,
+           ..Self::default()
         }
     }
 }
