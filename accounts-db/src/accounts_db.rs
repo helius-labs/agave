@@ -7317,9 +7317,6 @@ impl AccountsDb {
         slot: Slot,
         stats: HashStats,
     ) -> (AccountsHash, /*capitalization*/ u64) {
-        sleep(Duration::from_secs(
-            rand::thread_rng().gen_range(0..4 * 60 * 60),
-        ));
         datapoint_info!("accounts_db-update_accounts_hash", ("slot", slot, i64),);
         let accounts_hash = self.calculate_accounts_hash(config, storages, stats);
         let old_accounts_hash = self.set_accounts_hash(slot, accounts_hash);
