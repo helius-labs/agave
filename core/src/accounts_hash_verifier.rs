@@ -20,15 +20,12 @@ use {
         },
         snapshot_utils,
     },
-    solana_sdk::clock::{Slot, DEFAULT_MS_PER_SLOT},
+    solana_sdk::{clock::{Slot, DEFAULT_MS_PER_SLOT}, hash::Hash},
     std::{
-        io::Result as IoResult,
-        sync::{
+        fs::{read_to_string, File}, io::{Result as IoResult, Write}, path::Path, sync::{
             atomic::{AtomicBool, Ordering},
             Arc, Mutex,
-        },
-        thread::{self, Builder, JoinHandle},
-        time::Duration,
+        }, thread::{self, Builder, JoinHandle}, time::Duration
     },
 };
 
@@ -209,16 +206,57 @@ impl AccountsHashVerifier {
         }
     }
 
+    fn wait_for_epoch_accounts_hash_file(epoch: u64) -> Option<AccountsHash> {
+        let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
+        let file_path = Path::new(&eah_path).join(format!("{}.txt", epoch));
+        let max_attempts = 6; // 6 * 10 minutes = 1 hour
+        let wait_duration = Duration::from_secs(60 * 10); // 10 minutes
+
+        for _ in 0..max_attempts {
+            if file_path.exists() {
+                match read_to_string(&file_path) {
+                    Ok(content) => {
+                        let bytes: [u8; 32] = content.trim().as_bytes()
+                            .try_into()
+                            .expect("Hash must be exactly 32 bytes");
+                        let accounts_hash = AccountsHash(Hash::new(&bytes));
+                        return Some(accounts_hash);
+                    },
+                    Err(e) => {
+                        warn!("Failed to read epoch accounts hash file: {}", e);
+                        return None;
+                    }
+                }
+            }
+            thread::sleep(wait_duration);
+        }
+
+        warn!("Epoch accounts hash file not found after {} attempts", max_attempts);
+        None
+    }
+
+
     #[allow(clippy::too_many_arguments)]
     fn process_accounts_package(
         accounts_package: AccountsPackage,
         pending_snapshot_packages: &Mutex<PendingSnapshotPackages>,
         snapshot_config: &SnapshotConfig,
     ) -> IoResult<()> {
-        let (accounts_hash_kind, bank_incremental_snapshot_persistence) =
-            Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?;
+        let epoch_schedule = &accounts_package.epoch_schedule;
+        let current_epoch = epoch_schedule.get_epoch(accounts_package.slot);
 
-        Self::save_epoch_accounts_hash(&accounts_package, accounts_hash_kind);
+        let (accounts_hash_kind, bank_incremental_snapshot_persistence) = match accounts_package.package_kind {
+            AccountsPackageKind::EpochAccountsHash => {
+                if let Some(accounts_hash) = Self::wait_for_epoch_accounts_hash_file(current_epoch) {
+                    (accounts_hash.into(), None)
+                } else {
+                    // If no file is found, calculate the hash
+                    Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?
+                }
+            },
+            _ => Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?
+        };
+        Self::save_epoch_accounts_hash(&accounts_package, accounts_hash_kind, current_epoch);
 
         Self::purge_old_accounts_hashes(&accounts_package, snapshot_config);
 
@@ -413,6 +451,7 @@ impl AccountsHashVerifier {
     fn save_epoch_accounts_hash(
         accounts_package: &AccountsPackage,
         accounts_hash: AccountsHashKind,
+        current_epoch: u64,
     ) {
         if accounts_package.package_kind == AccountsPackageKind::EpochAccountsHash {
             let AccountsHashKind::Full(accounts_hash) = accounts_hash else {
@@ -421,6 +460,22 @@ impl AccountsHashVerifier {
             info!(
                 "saving epoch accounts hash, slot: {}, hash: {}",
                 accounts_package.slot, accounts_hash.0,
+            );
+            // Save the accounts hash to file
+            let accounts_hash_string = format!("{}", accounts_hash.0);
+            let file_name = format!("{}.txt", current_epoch);
+            let file_path = Path::new("/home/solana/eah").join(file_name);
+
+            std::fs::create_dir_all("/home/solana/eah").expect("Failed to create directory");
+
+            let mut file = File::create(&file_path)
+                .expect("Failed to create file for epoch accounts hash");
+            file.write_all(accounts_hash_string.as_bytes())
+                .expect("Failed to write epoch accounts hash to file");
+
+            info!(
+                "Saved epoch accounts hash to file: {}",
+                file_path.display()
             );
             accounts_package
                 .accounts
