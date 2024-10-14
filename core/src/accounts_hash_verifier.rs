@@ -207,6 +207,11 @@ impl AccountsHashVerifier {
     }
 
     fn wait_for_epoch_accounts_hash_file(epoch: u64) -> Option<AccountsHash> {
+        // skip waiting for eah file if node is a snapshot server
+        let snapshot_upload = std::env::var("UPLOAD_SNAPSHOTS").unwrap_or_else(|_| "disabled".to_string());
+        if snapshot_upload == "enabled" {
+            return None;
+        }
         let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
         let file_path = Path::new(&eah_path).join(format!("{}.txt", epoch));
         let max_attempts = 6; // 6 * 10 minutes = 1 hour
@@ -464,10 +469,16 @@ impl AccountsHashVerifier {
             // Save the accounts hash to file
             let accounts_hash_string = format!("{}", accounts_hash.0);
             let file_name = format!("{}.txt", current_epoch);
-            let file_path = Path::new("/home/solana/eah").join(file_name);
+            let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
+            let eah_dir = Path::new(&eah_path);
 
-            std::fs::create_dir_all("/home/solana/eah").expect("Failed to create directory");
+            // Wipe the content of the folder before saving the file
+            if eah_dir.exists() {
+                std::fs::remove_dir_all(eah_dir).expect("Failed to remove existing directory");
+            }
+            std::fs::create_dir_all(eah_dir).expect("Failed to create directory");
 
+            let file_path = eah_dir.join(file_name);
             let mut file = File::create(&file_path)
                 .expect("Failed to create file for epoch accounts hash");
             file.write_all(accounts_hash_string.as_bytes())
