@@ -212,6 +212,7 @@ impl AccountsHashVerifier {
         if snapshot_upload == "enabled" {
             return None;
         }
+        info!("Waiting for epoch accounts hash file");
         let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
         let file_path = Path::new(&eah_path).join(format!("{}.txt", epoch));
         let max_attempts = 6; // 6 * 10 minutes = 1 hour
@@ -221,9 +222,13 @@ impl AccountsHashVerifier {
             if file_path.exists() {
                 match read_to_string(&file_path) {
                     Ok(content) => {
-                        let bytes: [u8; 32] = content.trim().as_bytes()
-                            .try_into()
-                            .expect("Hash must be exactly 32 bytes");
+                        let bytes: [u8; 32] = match content.trim().as_bytes().try_into() {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                warn!("Hash in file is not exactly 32 bytes");
+                                return None;
+                            }
+                        };
                         let accounts_hash = AccountsHash(Hash::new(&bytes));
                         return Some(accounts_hash);
                     },
@@ -257,6 +262,7 @@ impl AccountsHashVerifier {
                     (accounts_hash.into(), None)
                 } else {
                     // If no file is found, calculate the hash
+                    info!("Calculating epoch accounts hash");
                     Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?
                 }
             },
@@ -473,22 +479,33 @@ impl AccountsHashVerifier {
             let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
             let eah_dir = Path::new(&eah_path);
 
-            // Wipe the content of the folder before saving the file
+            // Attempt to wipe the content of the folder before saving the file
             if eah_dir.exists() {
-                std::fs::remove_dir_all(eah_dir).expect("Failed to remove existing directory");
+                if let Err(e) = std::fs::remove_dir_all(eah_dir) {
+                    warn!("Failed to remove existing directory: {}", e);
+                }
             }
-            std::fs::create_dir_all(eah_dir).expect("Failed to create directory");
+            if let Err(e) = std::fs::create_dir_all(eah_dir) {
+                warn!("Failed to create directory: {}", e);
+            }
 
             let file_path = eah_dir.join(file_name);
-            let mut file = File::create(&file_path)
-                .expect("Failed to create file for epoch accounts hash");
-            file.write_all(accounts_hash_string.as_bytes())
-                .expect("Failed to write epoch accounts hash to file");
+            match File::create(&file_path) {
+                Ok(mut file) => {
+                    if let Err(e) = file.write_all(accounts_hash_string.as_bytes()) {
+                        warn!("Failed to write epoch accounts hash to file: {}", e);
+                    } else {
+                        info!(
+                            "Saved epoch accounts hash to file: {}",
+                            file_path.display()
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to create file for epoch accounts hash: {}", e);
+                }
+            }
 
-            info!(
-                "Saved epoch accounts hash to file: {}",
-                file_path.display()
-            );
             accounts_package
                 .accounts
                 .accounts_db
