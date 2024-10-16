@@ -253,6 +253,7 @@ impl AccountsHashVerifier {
         let (accounts_hash_kind, bank_incremental_snapshot_persistence) = match accounts_package.package_kind {
             AccountsPackageKind::EpochAccountsHash => {
                 if let Some(accounts_hash) = Self::wait_for_epoch_accounts_hash_file(current_epoch) {
+                    info!("Using epoch accounts hash file instead of calculating it");
                     (accounts_hash.into(), None)
                 } else {
                     // If no file is found, calculate the hash
