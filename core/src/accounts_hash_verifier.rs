@@ -27,6 +27,7 @@ use {
             Arc, Mutex,
         }, thread::{self, Builder, JoinHandle}, time::Duration
     },
+    bs58
 };
 
 pub struct AccountsHashVerifier {
@@ -206,7 +207,7 @@ impl AccountsHashVerifier {
         }
     }
 
-    fn wait_for_epoch_accounts_hash_file(epoch: u64) -> Option<AccountsHash> {
+    fn try_read_epoch_accounts_hash_from_file(epoch: u64) -> Option<AccountsHash> {
         // skip waiting for eah file if node is a snapshot server
         let snapshot_upload = std::env::var("UPLOAD_SNAPSHOTS").unwrap_or_else(|_| "disabled".to_string());
         if snapshot_upload == "enabled" {
@@ -215,28 +216,27 @@ impl AccountsHashVerifier {
         info!("Waiting for epoch accounts hash file");
         let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
         let file_path = Path::new(&eah_path).join(format!("{}.txt", epoch));
-        let max_attempts = 6; // 6 * 10 minutes = 1 hour
-        let wait_duration = Duration::from_secs(60 * 10); // 10 minutes
+        let max_attempts = 12; // 12 * 5 minutes = 1 hour
+        let wait_duration = Duration::from_secs(60 * 5); // 5 minutes
 
         for _ in 0..max_attempts {
             if file_path.exists() {
-                match read_to_string(&file_path) {
-                    Ok(content) => {
-                        let bytes: [u8; 32] = match content.trim().as_bytes().try_into() {
-                            Ok(bytes) => bytes,
-                            Err(_) => {
-                                warn!("Hash in file is not exactly 32 bytes");
-                                return None;
-                            }
-                        };
-                        let accounts_hash = AccountsHash(Hash::new(&bytes));
-                        return Some(accounts_hash);
-                    },
+                let content = match read_to_string(&file_path) {
+                    Ok(content) => content,
                     Err(e) => {
                         warn!("Failed to read epoch accounts hash file: {}", e);
-                        return None;
+                        continue;
                     }
-                }
+                };
+                let bytes = match bs58::decode(content.trim()).into_vec() {
+                    Ok(bytes) if bytes.len() == 32 => bytes,
+                    _ => {
+                        warn!("Invalid hash: must be a valid 32-byte Base58 encoded string");
+                        continue;
+                    }
+                };
+                let accounts_hash = AccountsHash(Hash::new(&bytes));
+                return Some(accounts_hash);
             }
             thread::sleep(wait_duration);
         }
@@ -257,7 +257,7 @@ impl AccountsHashVerifier {
 
         let (accounts_hash_kind, bank_incremental_snapshot_persistence) = match accounts_package.package_kind {
             AccountsPackageKind::EpochAccountsHash => {
-                if let Some(accounts_hash) = Self::wait_for_epoch_accounts_hash_file(current_epoch) {
+                if let Some(accounts_hash) = Self::try_read_epoch_accounts_hash_from_file(current_epoch) {
                     info!("Using epoch accounts hash file instead of calculating it");
                     (accounts_hash.into(), None)
                 } else {
