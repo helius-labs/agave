@@ -216,8 +216,8 @@ impl AccountsHashVerifier {
         info!("Waiting for epoch accounts hash file");
         let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
         let file_path = Path::new(&eah_path).join(format!("{}.txt", epoch));
-        let max_attempts = 12; // 12 * 5 minutes = 1 hour
-        let wait_duration = Duration::from_secs(60 * 5); // 5 minutes
+        let max_attempts = 60; // retry for 1 hour
+        let wait_duration = Duration::from_secs(60); // 1 min
 
         for _ in 0..max_attempts {
             if file_path.exists() {
