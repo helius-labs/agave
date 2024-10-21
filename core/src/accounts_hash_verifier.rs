@@ -208,9 +208,8 @@ impl AccountsHashVerifier {
     }
 
     fn try_read_epoch_accounts_hash_from_file(epoch: u64) -> Option<AccountsHash> {
-        // skip waiting for eah file if node is a snapshot server
-        let snapshot_upload = std::env::var("UPLOAD_SNAPSHOTS").unwrap_or_else(|_| "disabled".to_string());
-        if snapshot_upload == "enabled" {
+        // skip waiting for eah file if node is a distributor
+        if Self::is_eah_distributor() {
             return None;
         }
         info!("Waiting for epoch accounts hash file");
@@ -245,6 +244,17 @@ impl AccountsHashVerifier {
         None
     }
 
+    fn is_eah_distributor() -> bool {
+        let validator_script_path = std::env::var("SOLANA_VALIDATOR_SCRIPT")
+        .unwrap_or_else(|_| "/home/solana/validator.sh".to_string());
+        match std::fs::read_to_string(validator_script_path) {
+            Ok(content) => content.contains("--maximum-incremental-snapshots-to-retain"),
+            Err(e) => {
+                warn!("Failed to read validator script: {}", e);
+                false
+            }
+        }
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn process_accounts_package(
@@ -474,35 +484,37 @@ impl AccountsHashVerifier {
                 accounts_package.slot, accounts_hash.0,
             );
             // Save the accounts hash to file
-            let accounts_hash_string = format!("{}", accounts_hash.0);
-            let file_name = format!("{}.txt", current_epoch);
-            let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
-            let eah_dir = Path::new(&eah_path);
+            if Self::is_eah_distributor() {
+                let accounts_hash_string = format!("{}", accounts_hash.0);
+                let file_name = format!("{}.txt", current_epoch);
+                let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
+                let eah_dir = Path::new(&eah_path);
 
-            // Attempt to wipe the content of the folder before saving the file
-            if eah_dir.exists() {
-                if let Err(e) = std::fs::remove_dir_all(eah_dir) {
-                    warn!("Failed to remove existing directory: {}", e);
-                }
-            }
-            if let Err(e) = std::fs::create_dir_all(eah_dir) {
-                warn!("Failed to create directory: {}", e);
-            }
-
-            let file_path = eah_dir.join(file_name);
-            match File::create(&file_path) {
-                Ok(mut file) => {
-                    if let Err(e) = file.write_all(accounts_hash_string.as_bytes()) {
-                        warn!("Failed to write epoch accounts hash to file: {}", e);
-                    } else {
-                        info!(
-                            "Saved epoch accounts hash to file: {}",
-                            file_path.display()
-                        );
+                // Attempt to wipe the content of the folder before saving the file
+                if eah_dir.exists() {
+                    if let Err(e) = std::fs::remove_dir_all(eah_dir) {
+                        warn!("Failed to remove existing directory: {}", e);
                     }
                 }
-                Err(e) => {
-                    warn!("Failed to create file for epoch accounts hash: {}", e);
+                if let Err(e) = std::fs::create_dir_all(eah_dir) {
+                    warn!("Failed to create directory: {}", e);
+                }
+
+                let file_path = eah_dir.join(file_name);
+                match File::create(&file_path) {
+                    Ok(mut file) => {
+                        if let Err(e) = file.write_all(accounts_hash_string.as_bytes()) {
+                            warn!("Failed to write epoch accounts hash to file: {}", e);
+                        } else {
+                            info!(
+                                "Saved epoch accounts hash to file: {}",
+                                file_path.display()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to create file for epoch accounts hash: {}", e);
+                    }
                 }
             }
 
@@ -579,7 +591,7 @@ impl AccountsHashVerifier {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, rand::seq::SliceRandom, solana_runtime::snapshot_package::SnapshotKind};
+    use {super::*, rand::seq::SliceRandom, solana_runtime::snapshot_package::SnapshotKind, std::fs::remove_file};
 
     fn new(package_kind: AccountsPackageKind, slot: Slot) -> AccountsPackage {
         AccountsPackage {
@@ -833,5 +845,36 @@ mod tests {
             &accounts_package_receiver
         )
         .is_none());
+    }
+
+    #[test]
+    fn test_is_eah_distributor() {
+        let test_script_path = "/tmp/test_validator.sh";
+
+        // Test when the file contains the flag
+        {
+            let mut file = File::create(test_script_path).unwrap();
+            writeln!(file, "solana-validator --maximum-incremental-snapshots-to-retain 2").unwrap();
+            
+            std::env::set_var("SOLANA_VALIDATOR_SCRIPT", test_script_path);
+            assert!(AccountsHashVerifier::is_eah_distributor());
+        }
+
+        // Test when the file doesn't contain the flag
+        {
+            let mut file = File::create(test_script_path).unwrap();
+            writeln!(file, "solana-validator --other-flag").unwrap();
+            
+            assert!(!AccountsHashVerifier::is_eah_distributor());
+        }
+
+        // Test when the file doesn't exist
+        {
+            remove_file(test_script_path).unwrap();
+            assert!(!AccountsHashVerifier::is_eah_distributor());
+        }
+
+        // Clean up
+        std::env::remove_var("SOLANA_VALIDATOR_SCRIPT");
     }
 }
