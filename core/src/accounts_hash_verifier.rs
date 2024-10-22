@@ -207,9 +207,9 @@ impl AccountsHashVerifier {
         }
     }
 
-    fn try_read_epoch_accounts_hash_from_file(epoch: u64) -> Option<AccountsHash> {
+    fn read_epoch_accounts_hash_from_file(epoch: u64, maximum_incremental_snapshot_archives_to_retain: usize) -> Option<AccountsHash> {
         // skip waiting for eah file if node is a distributor
-        if Self::is_eah_distributor() {
+        if Self::is_eah_distributor(maximum_incremental_snapshot_archives_to_retain) {
             return None;
         }
         info!("Waiting for epoch accounts hash file");
@@ -244,16 +244,8 @@ impl AccountsHashVerifier {
         None
     }
 
-    fn is_eah_distributor() -> bool {
-        let validator_script_path = std::env::var("SOLANA_VALIDATOR_SCRIPT")
-        .unwrap_or_else(|_| "/home/solana/validator.sh".to_string());
-        match std::fs::read_to_string(validator_script_path) {
-            Ok(content) => content.contains("--maximum-incremental-snapshots-to-retain"),
-            Err(e) => {
-                warn!("Failed to read validator script: {}", e);
-                false
-            }
-        }
+    fn is_eah_distributor(maximum_incremental_snapshot_archives_to_retain: usize) -> bool {
+        maximum_incremental_snapshot_archives_to_retain != 4
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -265,9 +257,10 @@ impl AccountsHashVerifier {
         let epoch_schedule = &accounts_package.epoch_schedule;
         let current_epoch = epoch_schedule.get_epoch(accounts_package.slot);
 
+        let maximum_incremental_snapshot_archives_to_retain = snapshot_config.maximum_incremental_snapshot_archives_to_retain.get();
         let (accounts_hash_kind, bank_incremental_snapshot_persistence) = match accounts_package.package_kind {
             AccountsPackageKind::EpochAccountsHash => {
-                if let Some(accounts_hash) = Self::try_read_epoch_accounts_hash_from_file(current_epoch) {
+                if let Some(accounts_hash) = Self::read_epoch_accounts_hash_from_file(current_epoch, maximum_incremental_snapshot_archives_to_retain) {
                     info!("Using epoch accounts hash file instead of calculating it");
                     (accounts_hash.into(), None)
                 } else {
@@ -278,7 +271,7 @@ impl AccountsHashVerifier {
             },
             _ => Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?
         };
-        Self::save_epoch_accounts_hash(&accounts_package, accounts_hash_kind, current_epoch);
+        Self::save_epoch_accounts_hash(&accounts_package, accounts_hash_kind, current_epoch, maximum_incremental_snapshot_archives_to_retain);
 
         Self::purge_old_accounts_hashes(&accounts_package, snapshot_config);
 
@@ -474,6 +467,7 @@ impl AccountsHashVerifier {
         accounts_package: &AccountsPackage,
         accounts_hash: AccountsHashKind,
         current_epoch: u64,
+        maximum_incremental_snapshot_archives_to_retain: usize,
     ) {
         if accounts_package.package_kind == AccountsPackageKind::EpochAccountsHash {
             let AccountsHashKind::Full(accounts_hash) = accounts_hash else {
@@ -484,7 +478,7 @@ impl AccountsHashVerifier {
                 accounts_package.slot, accounts_hash.0,
             );
             // Save the accounts hash to file
-            if Self::is_eah_distributor() {
+            if Self::is_eah_distributor(maximum_incremental_snapshot_archives_to_retain) {
                 let accounts_hash_string = format!("{}", accounts_hash.0);
                 let file_name = format!("{}.txt", current_epoch);
                 let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
@@ -591,7 +585,7 @@ impl AccountsHashVerifier {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, rand::seq::SliceRandom, solana_runtime::snapshot_package::SnapshotKind, std::fs::remove_file};
+    use {super::*, rand::seq::SliceRandom, solana_runtime::snapshot_package::SnapshotKind};
 
     fn new(package_kind: AccountsPackageKind, slot: Slot) -> AccountsPackage {
         AccountsPackage {
@@ -849,32 +843,19 @@ mod tests {
 
     #[test]
     fn test_is_eah_distributor() {
-        let test_script_path = "/tmp/test_validator.sh";
+        let test_cases = vec![
+            (30, true),
+            (4, false),
+            (100, true),
+        ];
 
-        // Test when the file contains the flag
-        {
-            let mut file = File::create(test_script_path).unwrap();
-            writeln!(file, "solana-validator --maximum-incremental-snapshots-to-retain 2").unwrap();
-            
-            std::env::set_var("SOLANA_VALIDATOR_SCRIPT", test_script_path);
-            assert!(AccountsHashVerifier::is_eah_distributor());
+        for (input, expected) in test_cases {
+            assert_eq!(
+                AccountsHashVerifier::is_eah_distributor(input),
+                expected,
+                "Failed for input: {}",
+                input
+            );
         }
-
-        // Test when the file doesn't contain the flag
-        {
-            let mut file = File::create(test_script_path).unwrap();
-            writeln!(file, "solana-validator --other-flag").unwrap();
-            
-            assert!(!AccountsHashVerifier::is_eah_distributor());
-        }
-
-        // Test when the file doesn't exist
-        {
-            remove_file(test_script_path).unwrap();
-            assert!(!AccountsHashVerifier::is_eah_distributor());
-        }
-
-        // Clean up
-        std::env::remove_var("SOLANA_VALIDATOR_SCRIPT");
     }
 }
