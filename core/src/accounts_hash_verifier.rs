@@ -199,7 +199,7 @@ impl AccountsHashVerifier {
 
     fn read_epoch_accounts_hash_from_file(epoch: u64, incremental_snapshot_archive_interval_slots: u64) -> Option<AccountsHash> {
         // skip waiting for eah file if node is a distributor
-        if Self::is_eah_distributor(incremental_snapshot_archive_interval_slots) {
+        if !Self::snapshot_disabled(incremental_snapshot_archive_interval_slots) {
             return None;
         }
         info!("Waiting for epoch accounts hash file");
@@ -234,7 +234,7 @@ impl AccountsHashVerifier {
         None
     }
 
-    fn is_eah_distributor(incremental_snapshot_archive_interval_slots: u64) -> bool {
+    fn snapshot_disabled(incremental_snapshot_archive_interval_slots: u64) -> bool {
         incremental_snapshot_archive_interval_slots == DISABLED_SNAPSHOT_ARCHIVE_INTERVAL
     }
 
@@ -468,7 +468,7 @@ impl AccountsHashVerifier {
                 accounts_package.slot, accounts_hash.0,
             );
             // Save the accounts hash to file
-            if Self::is_eah_distributor(incremental_snapshot_archive_interval_slots) {
+            if !Self::snapshot_disabled(incremental_snapshot_archive_interval_slots) {
                 let accounts_hash_string = format!("{}", accounts_hash.0);
                 let file_name = format!("{}.txt", current_epoch);
                 let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
@@ -834,14 +834,14 @@ mod tests {
     #[test]
     fn test_is_eah_distributor() {
         let test_cases = vec![
-            (30, true),
-            (4, false),
-            (100, true),
+            (18446744073709551615, true),
+            (30, false),
+            (0, false),
         ];
 
         for (input, expected) in test_cases {
             assert_eq!(
-                AccountsHashVerifier::is_eah_distributor(input),
+                AccountsHashVerifier::snapshot_disabled(input),
                 expected,
                 "Failed for input: {}",
                 input
