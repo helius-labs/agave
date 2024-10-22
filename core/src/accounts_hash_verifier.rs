@@ -1,33 +1,23 @@
 //! Service to calculate accounts hashes
 
 use {
-    crate::snapshot_packager_service::PendingSnapshotPackages,
-    crossbeam_channel::{Receiver, Sender},
-    solana_accounts_db::{
+    crate::snapshot_packager_service::PendingSnapshotPackages, bs58, crossbeam_channel::{Receiver, Sender}, solana_accounts_db::{
         accounts_db::CalcAccountsHashKind,
         accounts_hash::{
             AccountsHash, AccountsHashKind, CalcAccountsHashConfig, HashStats,
             IncrementalAccountsHash,
         },
         sorted_storages::SortedStorages,
-    },
-    solana_measure::measure_us,
-    solana_runtime::{
-        serde_snapshot::BankIncrementalSnapshotPersistence,
-        snapshot_config::SnapshotConfig,
-        snapshot_package::{
+    }, solana_measure::measure_us, solana_runtime::{
+        serde_snapshot::BankIncrementalSnapshotPersistence, snapshot_bank_utils::DISABLED_SNAPSHOT_ARCHIVE_INTERVAL, snapshot_config::SnapshotConfig, snapshot_package::{
             self, AccountsPackage, AccountsPackageKind, SnapshotKind, SnapshotPackage,
-        },
-        snapshot_utils,
-    },
-    solana_sdk::{clock::{Slot, DEFAULT_MS_PER_SLOT}, hash::Hash},
-    std::{
+        }, snapshot_utils
+    }, solana_sdk::{clock::{Slot, DEFAULT_MS_PER_SLOT}, hash::Hash}, std::{
         fs::{read_to_string, File}, io::{Result as IoResult, Write}, path::Path, sync::{
             atomic::{AtomicBool, Ordering},
             Arc, Mutex,
         }, thread::{self, Builder, JoinHandle}, time::Duration
-    },
-    bs58
+    }
 };
 
 pub struct AccountsHashVerifier {
@@ -207,9 +197,9 @@ impl AccountsHashVerifier {
         }
     }
 
-    fn read_epoch_accounts_hash_from_file(epoch: u64, maximum_incremental_snapshot_archives_to_retain: usize) -> Option<AccountsHash> {
+    fn read_epoch_accounts_hash_from_file(epoch: u64, incremental_snapshot_archive_interval_slots: u64) -> Option<AccountsHash> {
         // skip waiting for eah file if node is a distributor
-        if Self::is_eah_distributor(maximum_incremental_snapshot_archives_to_retain) {
+        if Self::is_eah_distributor(incremental_snapshot_archive_interval_slots) {
             return None;
         }
         info!("Waiting for epoch accounts hash file");
@@ -244,8 +234,8 @@ impl AccountsHashVerifier {
         None
     }
 
-    fn is_eah_distributor(maximum_incremental_snapshot_archives_to_retain: usize) -> bool {
-        maximum_incremental_snapshot_archives_to_retain != 4
+    fn is_eah_distributor(incremental_snapshot_archive_interval_slots: u64) -> bool {
+        incremental_snapshot_archive_interval_slots == DISABLED_SNAPSHOT_ARCHIVE_INTERVAL
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -257,10 +247,10 @@ impl AccountsHashVerifier {
         let epoch_schedule = &accounts_package.epoch_schedule;
         let current_epoch = epoch_schedule.get_epoch(accounts_package.slot);
 
-        let maximum_incremental_snapshot_archives_to_retain = snapshot_config.maximum_incremental_snapshot_archives_to_retain.get();
+        let incremental_snapshot_archive_interval_slots = snapshot_config.incremental_snapshot_archive_interval_slots;
         let (accounts_hash_kind, bank_incremental_snapshot_persistence) = match accounts_package.package_kind {
             AccountsPackageKind::EpochAccountsHash => {
-                if let Some(accounts_hash) = Self::read_epoch_accounts_hash_from_file(current_epoch, maximum_incremental_snapshot_archives_to_retain) {
+                if let Some(accounts_hash) = Self::read_epoch_accounts_hash_from_file(current_epoch, incremental_snapshot_archive_interval_slots) {
                     info!("Using epoch accounts hash file instead of calculating it");
                     (accounts_hash.into(), None)
                 } else {
@@ -271,7 +261,7 @@ impl AccountsHashVerifier {
             },
             _ => Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?
         };
-        Self::save_epoch_accounts_hash(&accounts_package, accounts_hash_kind, current_epoch, maximum_incremental_snapshot_archives_to_retain);
+        Self::save_epoch_accounts_hash(&accounts_package, accounts_hash_kind, current_epoch, incremental_snapshot_archive_interval_slots);
 
         Self::purge_old_accounts_hashes(&accounts_package, snapshot_config);
 
@@ -467,7 +457,7 @@ impl AccountsHashVerifier {
         accounts_package: &AccountsPackage,
         accounts_hash: AccountsHashKind,
         current_epoch: u64,
-        maximum_incremental_snapshot_archives_to_retain: usize,
+        incremental_snapshot_archive_interval_slots: u64,
     ) {
         if accounts_package.package_kind == AccountsPackageKind::EpochAccountsHash {
             let AccountsHashKind::Full(accounts_hash) = accounts_hash else {
@@ -478,7 +468,7 @@ impl AccountsHashVerifier {
                 accounts_package.slot, accounts_hash.0,
             );
             // Save the accounts hash to file
-            if Self::is_eah_distributor(maximum_incremental_snapshot_archives_to_retain) {
+            if Self::is_eah_distributor(incremental_snapshot_archive_interval_slots) {
                 let accounts_hash_string = format!("{}", accounts_hash.0);
                 let file_name = format!("{}.txt", current_epoch);
                 let eah_path = std::env::var("SOLANA_EAH_PATH").unwrap_or_else(|_| "/home/solana/eah".to_string());
