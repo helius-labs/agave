@@ -832,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_eah_distributor() {
+    fn test_snapshot_disabled() {
         let test_cases = vec![
             (DISABLED_SNAPSHOT_ARCHIVE_INTERVAL, true),
             (30, false),
