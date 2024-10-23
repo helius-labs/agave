@@ -834,7 +834,7 @@ mod tests {
     #[test]
     fn test_is_eah_distributor() {
         let test_cases = vec![
-            (18446744073709551615, true),
+            (DISABLED_SNAPSHOT_ARCHIVE_INTERVAL, true),
             (30, false),
             (0, false),
         ];
