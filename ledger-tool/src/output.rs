@@ -41,7 +41,6 @@ use {
         sync::Arc,
     },
 };
-
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -537,6 +536,17 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
             BlockContents::BlockWithoutMetadata(block) => Ok(encode_versioned_transactions(block)),
         }
     }
+}
+
+pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot) -> Result<()> {
+    output_slot(
+        &blockstore,
+        slot,
+        true,
+        &OutputFormat::DisplayVerbose,
+        1000,
+        &mut HashMap::new(),
+    )
 }
 
 pub fn output_slot(

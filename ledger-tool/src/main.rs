@@ -3,6 +3,7 @@ use {
     crate::{
         args::*,
         bigtable::*,
+        parquet::*,
         blockstore::*,
         ledger_path::*,
         ledger_utils::*,
@@ -107,6 +108,7 @@ mod ledger_path;
 mod ledger_utils;
 mod output;
 mod program;
+mod parquet;
 
 fn parse_encoding_format(matches: &ArgMatches<'_>) -> UiAccountEncoding {
     match matches.value_of("encoding") {
@@ -1012,6 +1014,7 @@ fn main() {
                 .help("Show additional information where supported"),
         )
         .bigtable_subcommand()
+        .parquet_subcommand()
         .blockstore_subcommand()
         // All of the blockstore commands are added under the blockstore command.
         // For the sake of legacy support, also directly add the blockstore commands here so that
@@ -1651,6 +1654,7 @@ fn main() {
 
     match matches.subcommand() {
         ("bigtable", Some(arg_matches)) => bigtable_process_command(&ledger_path, arg_matches),
+        ("parquet", Some(arg_matches)) => parquet_process_command(&ledger_path, arg_matches),
         ("blockstore", Some(arg_matches)) => blockstore_process_command(&ledger_path, arg_matches),
         ("program", Some(arg_matches)) => program(&ledger_path, arg_matches),
         // This match case provides legacy support for commands that were previously top level
