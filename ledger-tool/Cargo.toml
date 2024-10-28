@@ -57,7 +57,9 @@ solana-vote-program = { workspace = true }
 solana_rbpf = { workspace = true, features = ["debugger"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-
+arrow = "53.2.0"
+parquet = "53.2.0"
+rayon = "1.10.0
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = { workspace = true }
 

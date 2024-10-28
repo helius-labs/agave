@@ -41,6 +41,20 @@ use {
         sync::Arc,
     },
 };
+
+use arrow::array::Int16Array;
+use arrow::array::TimestampMillisecondArray;
+use arrow::datatypes::DataType;
+use arrow::datatypes::Field;
+use arrow::datatypes::Schema;
+use arrow::datatypes::TimeUnit;
+use arrow::{
+    array::{ArrayRef, BooleanArray, StringArray, UInt64Array},
+    record_batch::RecordBatch,
+};
+use chrono::Utc;
+use parquet::{arrow::ArrowWriter, file::properties::WriterProperties};
+use std::fs::File;
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -539,14 +553,234 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
 }
 
 pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot) -> Result<()> {
-    output_slot(
+    // output_slot(
+    //     &blockstore,
+    //     slot,
+    //     true,
+    //     &OutputFormat::DisplayVerbose,
+    //     1000,
+    //     &mut HashMap::new(),
+    // )
+    let a = output_slot_2(
         &blockstore,
         slot,
         true,
         &OutputFormat::DisplayVerbose,
         1000,
         &mut HashMap::new(),
+    );
+
+    write_slots_to_parquet(blockstore, slot, slot + 10);
+
+    Ok(())
+}
+
+pub fn output_slot_2(
+    blockstore: &Blockstore,
+    slot: Slot,
+    allow_dead_slots: bool,
+    output_format: &OutputFormat,
+    verbose_level: u64,
+    all_program_ids: &mut HashMap<Pubkey, u64>,
+) -> Option<BlockContents> {
+    let is_root = blockstore.is_root(slot);
+    let is_dead = blockstore.is_dead(slot);
+
+    let Some(meta) = blockstore.meta(slot).unwrap() else {
+        return None;
+    };
+
+    let (block_contents, entries) = match blockstore.get_complete_block_with_entries(
+        slot,
+        /*require_previous_blockhash:*/ false,
+        /*populate_entries:*/ true,
+        allow_dead_slots,
+    ) {
+        Ok(VersionedConfirmedBlockWithEntries { block, entries }) => {
+            (BlockContents::VersionedConfirmedBlock(block), entries)
+        }
+        Err(err) => {
+            // Transaction metadata could be missing, try to fetch just the
+            // entries and leave the metadata fields empty
+            let maybe_entries = blockstore.get_slot_entries(slot, /*shred_start_index:*/ 0);
+
+            let entries = match maybe_entries {
+                Ok(e) => e,
+                Err(_) => return None,
+            };
+
+            let blockhash = entries
+                .last()
+                .filter(|_| meta.is_full())
+                .map(|entry| entry.hash)
+                .unwrap_or(Hash::default());
+            let parent_slot = meta.parent_slot.unwrap_or(0);
+
+            let mut entry_summaries = Vec::with_capacity(entries.len());
+            let mut starting_transaction_index = 0;
+            let transactions = entries
+                .into_iter()
+                .flat_map(|entry| {
+                    entry_summaries.push(EntrySummary {
+                        num_hashes: entry.num_hashes,
+                        hash: entry.hash,
+                        num_transactions: entry.transactions.len() as u64,
+                        starting_transaction_index,
+                    });
+                    starting_transaction_index += entry.transactions.len();
+
+                    entry.transactions
+                })
+                .collect();
+
+            let block = BlockWithoutMetadata {
+                blockhash: blockhash.to_string(),
+                parent_slot,
+                transactions,
+            };
+            (BlockContents::BlockWithoutMetadata(block), entry_summaries)
+        }
+    };
+
+    Some(block_contents)
+}
+
+fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: Slot) {
+    println!("Processing slots {} to {}", start_slot, end_slot);
+
+    // Vectors to collect data for all slots
+    let mut slots = Vec::new();
+    let mut block_hashes = Vec::new();
+    let mut block_times = Vec::new();
+    let mut block_heights = Vec::new();
+    let mut parent_slots = Vec::new();
+    let mut rewards = Vec::new();
+    let mut commitments = Vec::new();
+    let mut timestamps = Vec::new();
+    let mut update_timestamps = Vec::new();
+
+    // Process each slot and add to vectors
+    for slot in blockstore.lowest_slot()..=blockstore.highest_slot().unwrap().unwrap() {
+        println!("Processing slot {}", slot);
+
+        let maybe_block_contents = output_slot_2(
+            blockstore,
+            slot,
+            true,
+            &OutputFormat::DisplayVerbose,
+            1000,
+            &mut HashMap::new(),
+        );
+
+        let block_contents = match maybe_block_contents {
+            Some(bc) => bc,
+            None => continue,
+        };
+
+        // Extract data based on enum variant
+        match &block_contents {
+            BlockContents::VersionedConfirmedBlock(block) => {
+                println!("Got versioned block data for slot {}", slot);
+                slots.push(slot);
+                block_hashes.push(block.blockhash.to_string());
+                block_times.push(block.block_time.map(|t| t as i64).unwrap_or_default());
+                block_heights.push(block.block_height.unwrap_or_default());
+                parent_slots.push(block.parent_slot);
+                rewards.push(serde_json::to_string(&block.rewards).unwrap());
+                commitments.push(2i16);
+                let now = Utc::now().timestamp_millis();
+                timestamps.push(now);
+                update_timestamps.push(now);
+            }
+            BlockContents::BlockWithoutMetadata(block) => {
+                println!("Got block without metadata for slot {}", slot);
+                slots.push(slot);
+                block_hashes.push(block.blockhash.clone());
+                block_times.push(0); // No blocktime available
+                block_heights.push(0); // No height available
+                parent_slots.push(block.parent_slot);
+                rewards.push("[]".to_string()); // Empty rewards
+                commitments.push(2i16);
+                let now = Utc::now().timestamp_millis();
+                timestamps.push(now);
+                update_timestamps.push(now);
+            }
+        }
+    }
+
+    println!("Found {} valid blocks", slots.len());
+    if slots.is_empty() {
+        println!("No blocks found to write!");
+        return;
+    }
+
+    // Create Arrow arrays
+    let slot_array: ArrayRef = Arc::new(UInt64Array::from(slots));
+    let blockhash_array: ArrayRef = Arc::new(StringArray::from(block_hashes));
+    let blocktime_array: ArrayRef = Arc::new(TimestampMillisecondArray::from(block_times));
+    let blockheight_array: ArrayRef = Arc::new(UInt64Array::from(block_heights));
+    let parentslot_array: ArrayRef = Arc::new(UInt64Array::from(parent_slots));
+    let rewards_array: ArrayRef = Arc::new(StringArray::from(rewards));
+    let commitment_array: ArrayRef = Arc::new(Int16Array::from(commitments));
+    let timestamp_array: ArrayRef = Arc::new(TimestampMillisecondArray::from(timestamps));
+    let update_timestamp_array: ArrayRef =
+        Arc::new(TimestampMillisecondArray::from(update_timestamps));
+
+    // Create schema
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("slot", DataType::UInt64, false),
+        Field::new("blockhash", DataType::Utf8, false),
+        Field::new(
+            "blocktime",
+            DataType::Timestamp(TimeUnit::Millisecond, None),
+            false,
+        ),
+        Field::new("blockheight", DataType::UInt64, false),
+        Field::new("parentslot", DataType::UInt64, false),
+        Field::new("rewards", DataType::Utf8, false),
+        Field::new("commitment", DataType::Int16, false),
+        Field::new(
+            "timestamp",
+            DataType::Timestamp(TimeUnit::Millisecond, None),
+            false,
+        ),
+        Field::new(
+            "update_timestamp",
+            DataType::Timestamp(TimeUnit::Millisecond, None),
+            false,
+        ),
+    ]));
+
+    // Create batch
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            slot_array,
+            blockhash_array,
+            blocktime_array,
+            blockheight_array,
+            parentslot_array,
+            rewards_array,
+            commitment_array,
+            timestamp_array,
+            update_timestamp_array,
+        ],
     )
+    .unwrap();
+
+    // Write to file
+    println!("Writing to parquet file...");
+    let file = File::create(format!(
+        "/root/blocks_{}_to_{}.parquet",
+        start_slot, end_slot
+    ))
+    .unwrap();
+    let mut writer =
+        ArrowWriter::try_new(file, schema, Some(WriterProperties::builder().build())).unwrap();
+
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+    println!("Done!");
 }
 
 pub fn output_slot(
