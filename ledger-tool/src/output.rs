@@ -45,8 +45,10 @@ use {
 };
 
 use arrow::array::BinaryArray;
+use arrow::array::Datum;
 use arrow::array::Int16Array;
 use arrow::array::TimestampMillisecondArray;
+use arrow::array::UInt16Array;
 use arrow::datatypes::DataType;
 use arrow::datatypes::Field;
 use arrow::datatypes::Schema;
@@ -58,6 +60,7 @@ use arrow::{
 use chrono::Utc;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::*;
+use downcast::Any;
 use futures::executor::block_on;
 use parquet::{arrow::ArrowWriter, file::properties::WriterProperties};
 use rayon::prelude::*;
@@ -753,25 +756,13 @@ fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: S
 
     // Define schema
     let schema = Arc::new(Schema::new(vec![
+        Field::new("address", DataType::Binary, false),
+        Field::new("signature", DataType::Binary, false),
         Field::new("slot", DataType::UInt64, false),
-        Field::new("blockhash", DataType::Utf8, false),
-        Field::new(
-            "blocktime",
-            DataType::Timestamp(TimeUnit::Millisecond, None),
-            false,
-        ),
-        Field::new("blockheight", DataType::UInt64, false),
-        Field::new("parentslot", DataType::UInt64, false),
-        Field::new("transaction", DataType::Binary, false),
-        Field::new("rewards", DataType::Utf8, false),
-        Field::new("commitment", DataType::Int16, false),
+        Field::new("index", DataType::UInt16, false),
+        Field::new("rewards", DataType::Utf8, true), // Using Utf8 for JSON string
         Field::new(
             "timestamp",
-            DataType::Timestamp(TimeUnit::Millisecond, None),
-            false,
-        ),
-        Field::new(
-            "update_timestamp",
             DataType::Timestamp(TimeUnit::Millisecond, None),
             false,
         ),
@@ -833,9 +824,36 @@ fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: S
                     }
                 }
 
+                let lengy = all_rows.len().clone();
                 if !all_rows.is_empty() {
-                    let batch = create_record_batch(&schema, all_rows).unwrap();
+                    let batch = create_record_batch(&schema, all_rows);
+                    println!("\nNew batch created:");
+                    println!("  Row count: {}", batch.num_rows());
+                    println!("  Column count: {}", batch.num_columns());
+                    if batch.num_rows() > 0 {
+                        println!("  First row sample:");
+                        for i in 0..batch.num_columns() {
+                            println!("    Column {}: {:?}", i, batch.column(i).get());
+                        }
+                    }
+
+                    // Also print the actual rows we're trying to add
+                    println!("  Rows being added: {}", lengy);
+
                     batches.push(batch);
+                }
+                // After processing each batch of slots:
+                println!("\nBatch validation:");
+                println!("  Total batches in memory: {}", batches.len());
+                if let Some(last_batch) = batches.last() {
+                    println!("  Current batch size: {}", last_batch.num_rows());
+                    println!(
+                        "  Memory size of batches: {} bytes",
+                        batches
+                            .iter()
+                            .map(|b| b.get_array_memory_size())
+                            .sum::<usize>()
+                    );
                 }
             }
 
@@ -854,12 +872,19 @@ fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: S
 
         // Write accumulated data to Parquet file
         ctx.sql(&format!(
-            "CREATE EXTERNAL TABLE '{}/blocks_{}_to_{}.parquet' 
+            "CREATE EXTERNAL TABLE '{}/address_activity' 
              STORED AS PARQUET 
-             AS SELECT * FROM blocks",
+             PARTITIONED BY (address)
+             AS 
+             SELECT 
+                 signature,
+                 slot,
+                 index,
+                 rewards,
+                 timestamp,
+                 address  -- this becomes the partition key
+             FROM blocks",
             std::env::current_dir().unwrap().display(),
-            start_slot,
-            end_slot
         ))
         .await
         .unwrap();
@@ -903,40 +928,161 @@ fn process_block_contents(
     }
 }
 
-// Helper function to create record batch
+// Helper function to create record batch with new schema
 fn create_record_batch(
     schema: &Schema,
     rows: Vec<(u64, String, i64, u64, u64, Vec<u8>, String, i16, i64, i64)>,
-) -> Result<RecordBatch> {
-    let batch = RecordBatch::try_new(
+) -> RecordBatch {
+    let mut addresses = Vec::new();
+    let mut signatures = Vec::new();
+    let mut slots = Vec::new();
+    let mut indices = Vec::new();
+    let mut rewards = Vec::new();
+    let mut timestamps = Vec::new();
+
+    println!("Processing {} rows", rows.len());
+
+    for (
+        idx,
+        (slot, _hash, timestamp, _height, _parent, tx_data, reward, _commitment, _ts, _update_ts),
+    ) in rows.into_iter().enumerate()
+    {
+        let tx_json = String::from_utf8_lossy(&tx_data);
+
+        match serde_json::from_str::<serde_json::Value>(&tx_json) {
+            Ok(tx) => {
+                // Safely extract signatures
+                let signatures_array = match tx.get("signatures").and_then(|s| s.as_array()) {
+                    Some(arr) => arr,
+                    None => {
+                        // Minimal error output
+                        println!("Row {}: Invalid signature format", idx);
+                        continue;
+                    }
+                };
+
+                if signatures_array.is_empty() {
+                    continue;
+                }
+
+                let signature_bytes = match signatures_array.get(0) {
+                    Some(sig) => {
+                        if let Some(arr) = sig.as_array() {
+                            // Handle single-element arrays (vote transactions)
+                            if arr.len() == 1 {
+                                if idx % 1000 == 0 {
+                                    println!("Skipping vote transaction signature at row {}", idx);
+                                }
+                                continue;
+                            }
+                            
+                            // Try parsing as array of numbers
+                            if let Some(bytes) = arr.iter()
+                                .map(|v| v.as_u64().map(|n| n as u8))
+                                .collect::<Option<Vec<u8>>>() 
+                            {
+                                // Validate byte array length
+                                if bytes.len() == 32 || bytes.len() == 64 {
+                                    bytes
+                                } else {
+                                    if idx == 16217 { // First failing non-vote signature
+                                        println!("\nDEBUG - Invalid byte array at row {}:", idx);
+                                        println!("Array length: {}", bytes.len());
+                                        println!("Raw array: {:?}", arr);
+                                        println!("Transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                    }
+                                    continue
+                                }
+                            } else {
+                                if idx == 16217 {
+                                    println!("\nDEBUG - Failed to parse byte array at row {}:", idx);
+                                    println!("Raw array: {:?}", arr);
+                                    println!("Transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                }
+                                continue
+                            }
+                        }
+                        // Try base58 string format
+                        else if let Some(sig_str) = sig.as_str() {
+                            match bs58::decode(sig_str).into_vec() {
+                                Ok(bytes) => {
+                                    if bytes.len() == 32 || bytes.len() == 64 {
+                                        bytes
+                                    } else {
+                                        if idx == 16217 {
+                                            println!("\nDEBUG - Invalid base58 length at row {}:", idx);
+                                            println!("Decoded length: {}", bytes.len());
+                                            println!("Original string: {}", sig_str);
+                                        }
+                                        continue
+                                    }
+                                }
+                                Err(e) => {
+                                    if idx == 16217 {
+                                        println!("\nDEBUG - Base58 decode failed at row {}:", idx);
+                                        println!("Error: {}", e);
+                                        println!("Original string: {:?}", sig_str);
+                                    }
+                                    continue
+                                }
+                            }
+                        }
+                        else {
+                            if idx == 16217 {
+                                println!("\nDEBUG - Unknown signature format at row {}:", idx);
+                                println!("Raw value: {:?}", sig);
+                            }
+                            continue
+                        }
+                    }
+                    None => continue
+                };
+
+                // Extract account keys
+                let account_keys = match tx
+                    .get("message")
+                    .and_then(|m| m.as_array())
+                    .and_then(|arr| arr.get(0))
+                    .and_then(|m| m.get("accountKeys"))
+                    .and_then(|k| k.as_array())
+                {
+                    Some(arr) => arr,
+                    None => continue,
+                };
+
+                for (i, key_array) in account_keys.iter().enumerate() {
+                    if let Some(key_bytes) = key_array.as_array().and_then(|arr| {
+                        arr.iter()
+                            .map(|v| v.as_u64().map(|n| n as u8))
+                            .collect::<Option<Vec<u8>>>()
+                    }) {
+                        addresses.push(key_bytes);
+                        signatures.push(signature_bytes.clone());
+                        slots.push(slot);
+                        indices.push(i as u16);
+                        rewards.push(Some(reward.clone()));
+                        timestamps.push(timestamp);
+                    }
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    println!("Creating batch with {} addresses", addresses.len());
+
+    RecordBatch::try_new(
         Arc::new(schema.clone()),
         vec![
-            Arc::new(UInt64Array::from_iter_values(rows.iter().map(|r| r.0))),
-            Arc::new(StringArray::from_iter_values(
-                rows.iter().map(|r| r.1.clone()),
-            )),
-            Arc::new(TimestampMillisecondArray::from_iter_values(
-                rows.iter().map(|r| r.2),
-            )),
-            Arc::new(UInt64Array::from_iter_values(rows.iter().map(|r| r.3))),
-            Arc::new(UInt64Array::from_iter_values(rows.iter().map(|r| r.4))),
-            Arc::new(BinaryArray::from_iter_values(
-                rows.iter().map(|r| r.5.as_slice()),
-            )),
-            Arc::new(StringArray::from_iter_values(
-                rows.iter().map(|r| r.6.clone()),
-            )),
-            Arc::new(Int16Array::from_iter_values(rows.iter().map(|r| r.7))),
-            Arc::new(TimestampMillisecondArray::from_iter_values(
-                rows.iter().map(|r| r.8),
-            )),
-            Arc::new(TimestampMillisecondArray::from_iter_values(
-                rows.iter().map(|r| r.9),
-            )),
+            Arc::new(BinaryArray::from_iter_values(addresses)),
+            Arc::new(BinaryArray::from_iter_values(signatures)),
+            Arc::new(UInt64Array::from_iter_values(slots)),
+            Arc::new(UInt16Array::from_iter_values(indices)),
+            Arc::new(StringArray::from_iter(rewards)),
+            Arc::new(TimestampMillisecondArray::from_iter_values(timestamps)),
         ],
     )
-    .unwrap();
-    Ok(batch)
+    .unwrap()
 }
 
 pub fn output_slot(

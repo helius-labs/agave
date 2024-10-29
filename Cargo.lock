@@ -168,6 +168,7 @@ dependencies = [
  "csv",
  "dashmap 5.5.3",
  "datafusion",
+ "downcast",
  "futures 0.3.31",
  "histogram",
  "itertools 0.12.1",
