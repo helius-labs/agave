@@ -56,10 +56,12 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use chrono::Utc;
+use datafusion::datasource::MemTable;
+use datafusion::prelude::*;
+use futures::executor::block_on;
 use parquet::{arrow::ArrowWriter, file::properties::WriterProperties};
 use rayon::prelude::*;
 use std::fs::File;
-
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -681,19 +683,19 @@ impl ProcessingStats {
         let now = Instant::now();
         let batch_duration = now.duration_since(self.last_batch_time);
         let rate = records_in_batch as f64 / batch_duration.as_secs_f64();
-        
+
         self.total_slots_processed += slots_in_batch;
         self.total_records_written += records_in_batch;
-        
+
         // Using known total records for estimation
         let total_expected_records = 230_000_000;
         let remaining_records = total_expected_records - self.total_records_written;
-        
+
         // Calculate time remaining based on current rate
-        let current_rate = self.total_records_written as f64 / 
-            now.duration_since(self.start_time).as_secs_f64();
+        let current_rate =
+            self.total_records_written as f64 / now.duration_since(self.start_time).as_secs_f64();
         let estimated_remaining_secs = remaining_records as f64 / current_rate;
-        
+
         // Convert to hours, minutes, seconds
         let hours = (estimated_remaining_secs / 3600.0) as u64;
         let minutes = ((estimated_remaining_secs % 3600.0) / 60.0) as u64;
@@ -744,11 +746,12 @@ fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: S
     println!("Processing slots {} to {}", start_slot, end_slot);
 
     let mut stats = ProcessingStats::new(5, start_slot, end_slot);
+    let batch_size = 100;
 
-    // Define smaller batch size to prevent overflow
-    let batch_size = 100; // Reduced from 5_000
+    // Create DataFusion context
+    let ctx = SessionContext::new();
 
-    // Create schema
+    // Define schema
     let schema = Arc::new(Schema::new(vec![
         Field::new("slot", DataType::UInt64, false),
         Field::new("blockhash", DataType::Utf8, false),
@@ -774,105 +777,94 @@ fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: S
         ),
     ]));
 
-    // Create file and writer
-    println!("Creating parquet file...");
-    let file = File::create(format!(
-        "/root/blocks_{}_to_{}.parquet",
-        start_slot, end_slot
-    ))
-    .unwrap();
-    let props = WriterProperties::builder()
-        .set_compression(parquet::basic::Compression::SNAPPY) // Add compression
-        .set_max_row_group_size(100_000) // Adjust row group size
-        .build();
+    // Create memory table to accumulate batches
+    block_on(async {
+        let mem_table = MemTable::try_new(schema.clone(), vec![vec![]]).unwrap();
+        ctx.register_table("blocks", Arc::new(mem_table));
 
-    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
+        let mut batches = Vec::new();
 
-    // Process in batches
-    for batch_start in (start_slot..=end_slot).step_by(batch_size) {
-        let batch_end = std::cmp::min(batch_start + batch_size as u64, end_slot);
-        println!("\nProcessing batch {} to {}", batch_start, batch_end);
+        // Process in batches
+        for batch_start in (start_slot..=end_slot).step_by(batch_size) {
+            let batch_end = std::cmp::min(batch_start + batch_size as u64, end_slot);
+            println!("\nProcessing batch {} to {}", batch_start, batch_end);
 
-        // Process slots and collect data
-        let slot_data: Vec<_> = (batch_start..=batch_end)
-            .into_par_iter()
-            .inspect(|slot| {
-                if slot % 100 == 0 {
-                    println!("Processing slot {}", slot);
+            let slot_data: Vec<_> = (batch_start..=batch_end)
+                .into_par_iter()
+                .filter_map(|slot| {
+                    let result = output_slot_2(
+                        blockstore,
+                        slot,
+                        true,
+                        &OutputFormat::DisplayVerbose,
+                        1000,
+                        &mut HashMap::new(),
+                    );
+                    if slot % 1000 == 0 {
+                        println!("Completed slot {} - found data: {}", slot, result.is_some());
+                    }
+                    result.map(|block_contents| process_block_contents(slot, block_contents))
+                })
+                .collect();
+
+            if slot_data.is_empty() {
+                continue;
+            }
+
+            // Process data in chunks
+            for chunk in slot_data.chunks(100) {
+                let now = Utc::now().timestamp_millis();
+                let mut all_rows = Vec::new();
+
+                for (slot, hash, time, height, parent, transactions, reward) in chunk {
+                    for transaction in transactions {
+                        all_rows.push((
+                            *slot,
+                            hash.clone(),
+                            *time,
+                            *height,
+                            *parent,
+                            transaction.clone(),
+                            reward.clone(),
+                            2i16,
+                            now,
+                            now,
+                        ));
+                    }
                 }
-            })
-            .filter_map(|slot| {
-                let result = output_slot_2(
-                    blockstore,
-                    slot,
-                    true,
-                    &OutputFormat::DisplayVerbose,
-                    1000,
-                    &mut HashMap::new(),
-                );
-                if slot % 1000 == 0 {
-                    println!("Completed slot {} - found data: {}", slot, result.is_some());
-                }
-                result.map(|block_contents| process_block_contents(slot, block_contents))
-            })
-            .collect();
-        println!(
-            "Batch collection complete. Found {} records",
-            slot_data.len()
-        );
 
-        if slot_data.is_empty() {
-            println!("No valid blocks in this batch");
-            continue;
-        }
-
-        // Process data in smaller chunks to prevent overflow
-        let chunk_size = 100; // Process 100 transactions at a time
-        for chunk in slot_data.chunks(chunk_size) {
-            let now = Utc::now().timestamp_millis();
-            let mut all_rows = Vec::new();
-
-            // Collect rows for this chunk
-            for (slot, hash, time, height, parent, transactions, reward) in chunk {
-                for transaction in transactions {
-                    all_rows.push((
-                        *slot,
-                        hash.clone(),
-                        *time,
-                        *height,
-                        *parent,
-                        transaction.clone(),
-                        reward.clone(),
-                        2i16,
-                        now,
-                        now,
-                    ));
+                if !all_rows.is_empty() {
+                    let batch = create_record_batch(&schema, all_rows).unwrap();
+                    batches.push(batch);
                 }
             }
 
-            if !all_rows.is_empty() {
-                // Create and write record batch for this chunk
-                let batch = create_record_batch(&schema, all_rows).unwrap();
-                writer.write(&batch).unwrap();
-            }
+            stats.update(
+                batch_size as u64,
+                slot_data
+                    .iter()
+                    .map(|(_, _, _, _, _, txs, _)| txs.len() as u64)
+                    .sum(),
+            );
         }
 
-        // Update statistics for the entire batch
-        stats.update(
-            batch_size as u64,
-            slot_data
-                .iter()
-                .map(|(_, _, _, _, _, txs, _)| txs.len() as u64)
-                .sum(),
-        );
-    }
+        // Create new table with all batches
+        let new_table = MemTable::try_new(schema, vec![batches]).unwrap();
+        ctx.register_table("blocks", Arc::new(new_table));
 
-    // Close the writer
-    writer.flush().unwrap();
-    writer.close().unwrap();
-    println!("Done!");
+        // Write accumulated data to Parquet file
+        ctx.sql(&format!(
+            "CREATE EXTERNAL TABLE '{}/blocks_{}_to_{}.parquet' 
+             STORED AS PARQUET 
+             AS SELECT * FROM blocks",
+            std::env::current_dir().unwrap().display(),
+            start_slot,
+            end_slot
+        ))
+        .await
+        .unwrap();
+    });
 
-    // Print final statistics
     stats.final_stats();
 }
 
