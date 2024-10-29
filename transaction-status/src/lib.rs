@@ -409,7 +409,7 @@ pub enum TransactionWithStatusMeta {
     Complete(VersionedTransactionWithStatusMeta),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VersionedTransactionWithStatusMeta {
     pub transaction: VersionedTransaction,
     pub meta: TransactionStatusMeta,

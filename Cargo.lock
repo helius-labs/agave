@@ -159,6 +159,7 @@ version = "2.1.0"
 dependencies = [
  "arrow",
  "assert_cmd",
+ "bincode",
  "bs58",
  "bytecount",
  "chrono",
