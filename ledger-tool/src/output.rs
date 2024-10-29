@@ -967,8 +967,11 @@ fn create_record_batch(
 
                 let signature_bytes = match signatures_array.get(0) {
                     Some(sig) => {
+                        // For debugging - track if this is the first non-vote invalid signature
+                        static mut FIRST_INVALID_LOGGED: bool = false;
+                        
                         if let Some(arr) = sig.as_array() {
-                            // Handle single-element arrays (vote transactions)
+                            // Handle vote transactions
                             if arr.len() == 1 {
                                 if idx % 1000 == 0 {
                                     println!("Skipping vote transaction signature at row {}", idx);
@@ -981,23 +984,28 @@ fn create_record_batch(
                                 .map(|v| v.as_u64().map(|n| n as u8))
                                 .collect::<Option<Vec<u8>>>() 
                             {
-                                // Validate byte array length
                                 if bytes.len() == 32 || bytes.len() == 64 {
                                     bytes
                                 } else {
-                                    if idx == 16217 { // First failing non-vote signature
-                                        println!("\nDEBUG - Invalid byte array at row {}:", idx);
-                                        println!("Array length: {}", bytes.len());
-                                        println!("Raw array: {:?}", arr);
-                                        println!("Transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                    unsafe {
+                                        if !FIRST_INVALID_LOGGED {
+                                            println!("\nDEBUG - First invalid byte array at row {}:", idx);
+                                            println!("Array length: {}", bytes.len());
+                                            println!("Raw array: {:?}", arr);
+                                            println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                            FIRST_INVALID_LOGGED = true;
+                                        }
                                     }
                                     continue
                                 }
                             } else {
-                                if idx == 16217 {
-                                    println!("\nDEBUG - Failed to parse byte array at row {}:", idx);
-                                    println!("Raw array: {:?}", arr);
-                                    println!("Transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                unsafe {
+                                    if !FIRST_INVALID_LOGGED {
+                                        println!("\nDEBUG - First unparseable array at row {}:", idx);
+                                        println!("Raw array: {:?}", arr);
+                                        println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                        FIRST_INVALID_LOGGED = true;
+                                    }
                                 }
                                 continue
                             }
@@ -1009,28 +1017,38 @@ fn create_record_batch(
                                     if bytes.len() == 32 || bytes.len() == 64 {
                                         bytes
                                     } else {
-                                        if idx == 16217 {
-                                            println!("\nDEBUG - Invalid base58 length at row {}:", idx);
-                                            println!("Decoded length: {}", bytes.len());
-                                            println!("Original string: {}", sig_str);
+                                        unsafe {
+                                            if !FIRST_INVALID_LOGGED {
+                                                println!("\nDEBUG - First invalid base58 length at row {}:", idx);
+                                                println!("Decoded length: {}", bytes.len());
+                                                println!("Original string: {}", sig_str);
+                                                FIRST_INVALID_LOGGED = true;
+                                            }
                                         }
                                         continue
                                     }
                                 }
                                 Err(e) => {
-                                    if idx == 16217 {
-                                        println!("\nDEBUG - Base58 decode failed at row {}:", idx);
-                                        println!("Error: {}", e);
-                                        println!("Original string: {:?}", sig_str);
+                                    unsafe {
+                                        if !FIRST_INVALID_LOGGED {
+                                            println!("\nDEBUG - First base58 decode failure at row {}:", idx);
+                                            println!("Error: {}", e);
+                                            println!("Original string: {:?}", sig_str);
+                                            FIRST_INVALID_LOGGED = true;
+                                        }
                                     }
                                     continue
                                 }
                             }
                         }
                         else {
-                            if idx == 16217 {
-                                println!("\nDEBUG - Unknown signature format at row {}:", idx);
-                                println!("Raw value: {:?}", sig);
+                            unsafe {
+                                if !FIRST_INVALID_LOGGED {
+                                    println!("\nDEBUG - First unknown signature format at row {}:", idx);
+                                    println!("Raw value: {:?}", sig);
+                                    println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                    FIRST_INVALID_LOGGED = true;
+                                }
                             }
                             continue
                         }
