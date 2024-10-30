@@ -62,9 +62,22 @@ use datafusion::datasource::MemTable;
 use datafusion::prelude::*;
 use downcast::Any;
 use futures::executor::block_on;
-use parquet::{arrow::ArrowWriter, file::properties::WriterProperties};
+use parquet::arrow::ArrowWriter;
+use parquet::file::properties::WriterProperties;
+use parquet::basic::Compression;
 use rayon::prelude::*;
 use std::fs::File;
+use serde_json::Value;
+use datafusion::dataframe::DataFrameWriteOptions;
+use std::collections::HashSet;
+use arrow::array::AsArray;
+use arrow::compute::filter_record_batch;
+use arrow::array::StringBuilder;
+use arrow::array::Array;
+use std::path::Path;
+use datafusion::logical_expr::{create_udf, Volatility};
+use arrow::compute::take;
+
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -563,27 +576,12 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
 }
 
 pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot) -> Result<()> {
-    // output_slot(
-    //     &blockstore,
-    //     slot,
-    //     true,
-    //     &OutputFormat::DisplayVerbose,
-    //     1000,
-    //     &mut HashMap::new(),
-    // )
-    let a = output_slot_2(
-        &blockstore,
-        slot,
-        true,
-        &OutputFormat::DisplayVerbose,
-        1000,
-        &mut HashMap::new(),
-    );
+
 
     write_slots_to_parquet(
         blockstore,
         blockstore.lowest_slot(),
-        blockstore.highest_slot().unwrap().unwrap(),
+        blockstore.lowest_slot(),
     );
 
     Ok(())
@@ -866,31 +864,51 @@ fn write_slots_to_parquet(blockstore: &Blockstore, start_slot: Slot, end_slot: S
             );
         }
 
-        // Create new table with all batches
-        let new_table = MemTable::try_new(schema, vec![batches]).unwrap();
-        ctx.register_table("blocks", Arc::new(new_table));
+        // Create output directories
+        let output_dir = "/root/parquet_output";
+        let table_dir = format!("{}/address_activity", output_dir);
+        std::fs::create_dir_all(&table_dir).unwrap();
 
-        // Write accumulated data to Parquet file
-        ctx.sql(&format!(
-            "CREATE EXTERNAL TABLE '{}/address_activity' 
-             STORED AS PARQUET 
-             PARTITIONED BY (address)
-             AS 
-             SELECT 
-                 signature,
-                 slot,
-                 index,
-                 rewards,
-                 timestamp,
-                 address  -- this becomes the partition key
-             FROM blocks",
-            std::env::current_dir().unwrap().display(),
-        ))
-        .await
-        .unwrap();
+        println!("Original batch has {} rows", batches[0].num_rows());
+
+        // Group rows by address
+        let mut rows_by_address: HashMap<String, Vec<usize>> = HashMap::new();
+        
+        // Process all rows in the batch
+        let total_rows = batches[0].num_rows();
+        for row_idx in 0..total_rows {
+            let addr_bytes = batches[0].column(0).as_binary::<i32>().value(row_idx);
+            let addr = bs58::encode(addr_bytes).into_string();
+            rows_by_address.entry(addr).or_default().push(row_idx);
+        }
+
+        println!("\nFound {} unique addresses", rows_by_address.len());
+        
+        // Write each group to its own file
+        for (addr, row_indices) in rows_by_address {
+            let output_file = format!("{}/address={}/data.parquet", table_dir, addr);
+            std::fs::create_dir_all(Path::new(&output_file).parent().unwrap()).unwrap();
+            
+            // Create boolean mask for filtering
+            let mut mask = vec![false; total_rows];
+            for &idx in &row_indices {
+                mask[idx] = true;
+            }
+            let bool_array = BooleanArray::from(mask);
+            
+            // Create batch with all rows for this address
+            let filtered_batch = filter_record_batch(&batches[0], &bool_array).unwrap();
+            
+            let file = File::create(&output_file).unwrap();
+            let mut writer = ArrowWriter::try_new(file, schema.clone(), None).unwrap();
+            writer.write(&filtered_batch).unwrap();
+            writer.close().unwrap();
+        }
+
+        println!("Data written to {}", table_dir);
+
+        stats.final_stats();
     });
-
-    stats.final_stats();
 }
 
 // Helper function to process block contents
@@ -967,89 +985,73 @@ fn create_record_batch(
 
                 let signature_bytes = match signatures_array.get(0) {
                     Some(sig) => {
-                        // For debugging - track if this is the first non-vote invalid signature
-                        static mut FIRST_INVALID_LOGGED: bool = false;
-                        
                         if let Some(arr) = sig.as_array() {
-                            // Handle vote transactions
+                            // If it's a single-element array [1], get the second signature
                             if arr.len() == 1 {
-                                if idx % 1000 == 0 {
-                                    println!("Skipping vote transaction signature at row {}", idx);
-                                }
-                                continue;
-                            }
-                            
-                            // Try parsing as array of numbers
-                            if let Some(bytes) = arr.iter()
-                                .map(|v| v.as_u64().map(|n| n as u8))
-                                .collect::<Option<Vec<u8>>>() 
-                            {
-                                if bytes.len() == 32 || bytes.len() == 64 {
-                                    bytes
-                                } else {
-                                    unsafe {
-                                        if !FIRST_INVALID_LOGGED {
-                                            println!("\nDEBUG - First invalid byte array at row {}:", idx);
-                                            println!("Array length: {}", bytes.len());
-                                            println!("Raw array: {:?}", arr);
-                                            println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
-                                            FIRST_INVALID_LOGGED = true;
+                                match signatures_array.get(1) {
+                                    Some(real_sig) => {
+                                        if let Some(bytes) = real_sig.as_array()
+                                            .and_then(|arr| arr.iter()
+                                                .map(|v| v.as_u64().map(|n| n as u8))
+                                                .collect::<Option<Vec<u8>>>())
+                                        {
+                                            if bytes.len() == 32 || bytes.len() == 64 {
+                                                if idx % 1000 == 0 {
+                                                    println!("Processing vote transaction signature at row {}", idx);
+                                                }
+                                                bytes
+                                            } else {
+                                                println!("\nDEBUG - Invalid vote signature at row {}:", idx);
+                                                println!("Second signature length: {}", bytes.len());
+                                                println!("Raw second signature: {:?}", real_sig);
+                                                continue
+                                            }
+                                        } else {
+                                            println!("\nDEBUG - Vote signature parse failure at row {}:", idx);
+                                            println!("Raw second signature: {:?}", real_sig);
+                                            continue
                                         }
                                     }
-                                    continue
+                                    None => continue
                                 }
-                            } else {
-                                unsafe {
-                                    if !FIRST_INVALID_LOGGED {
-                                        println!("\nDEBUG - First unparseable array at row {}:", idx);
-                                        println!("Raw array: {:?}", arr);
-                                        println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
-                                        FIRST_INVALID_LOGGED = true;
-                                    }
-                                }
-                                continue
                             }
-                        }
-                        // Try base58 string format
-                        else if let Some(sig_str) = sig.as_str() {
-                            match bs58::decode(sig_str).into_vec() {
-                                Ok(bytes) => {
+                            // Regular non-vote transaction signature
+                            else {
+                                if let Some(bytes) = arr.iter()
+                                    .map(|v| v.as_u64().map(|n| n as u8))
+                                    .collect::<Option<Vec<u8>>>() 
+                                {
                                     if bytes.len() == 32 || bytes.len() == 64 {
                                         bytes
                                     } else {
-                                        unsafe {
-                                            if !FIRST_INVALID_LOGGED {
-                                                println!("\nDEBUG - First invalid base58 length at row {}:", idx);
-                                                println!("Decoded length: {}", bytes.len());
-                                                println!("Original string: {}", sig_str);
-                                                FIRST_INVALID_LOGGED = true;
-                                            }
-                                        }
+                                        println!("\nDEBUG - Invalid regular signature at row {}:", idx);
+                                        println!("Signature length: {}", bytes.len());
+                                        println!("Raw signature array: {:?}", arr);
+                                        println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
                                         continue
                                     }
+                                } else {
+                                    println!("\nDEBUG - Regular signature parse failure at row {}:", idx);
+                                    println!("Raw signature array: {:?}", arr);
+                                    println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
+                                    continue
                                 }
-                                Err(e) => {
-                                    unsafe {
-                                        if !FIRST_INVALID_LOGGED {
-                                            println!("\nDEBUG - First base58 decode failure at row {}:", idx);
-                                            println!("Error: {}", e);
-                                            println!("Original string: {:?}", sig_str);
-                                            FIRST_INVALID_LOGGED = true;
-                                        }
-                                    }
+                            }
+                        }
+                        else if let Some(sig_str) = sig.as_str() {
+                            match bs58::decode(sig_str).into_vec() {
+                                Ok(bytes) if bytes.len() == 32 || bytes.len() == 64 => bytes,
+                                _ => {
+                                    println!("\nDEBUG - Base58 signature failure at row {}:", idx);
+                                    println!("Original string: {:?}", sig_str);
                                     continue
                                 }
                             }
                         }
                         else {
-                            unsafe {
-                                if !FIRST_INVALID_LOGGED {
-                                    println!("\nDEBUG - First unknown signature format at row {}:", idx);
-                                    println!("Raw value: {:?}", sig);
-                                    println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
-                                    FIRST_INVALID_LOGGED = true;
-                                }
-                            }
+                            println!("\nDEBUG - Unknown signature format at row {}:", idx);
+                            println!("Raw value: {:?}", sig);
+                            println!("Full transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
                             continue
                         }
                     }
@@ -1533,4 +1535,42 @@ pub fn output_account(
             UiAccountData::LegacyBinary(_) => {}
         };
     }
+}
+
+fn extract_signature(signatures_array: &Vec<Value>, idx: usize) -> Option<Vec<u8>> {
+    // Skip empty arrays silently
+    if signatures_array.is_empty() {
+        return None;
+    }
+    
+    let first_sig = signatures_array.get(0)?;
+    
+    // Handle vote transaction format (array with length 1)
+    if let Some(arr) = first_sig.as_array() {
+        if arr.len() == 1 {
+            // For vote transactions, use the second signature
+            let second_sig = signatures_array.get(1)?;
+            return second_sig.as_array()
+                .and_then(|arr| arr.iter()
+                    .map(|v| v.as_u64().map(|n| n as u8))
+                    .collect::<Option<Vec<u8>>>())
+                .filter(|bytes| bytes.len() == 32 || bytes.len() == 64);
+        }
+        
+        // For regular transactions, use the first signature
+        return arr.iter()
+            .map(|v| v.as_u64().map(|n| n as u8))
+            .collect::<Option<Vec<u8>>>()
+            .filter(|bytes| bytes.len() == 32 || bytes.len() == 64);
+    }
+    
+    // Handle base58 encoded signatures
+    if let Some(sig_str) = first_sig.as_str() {
+        return bs58::decode(sig_str)
+            .into_vec()
+            .ok()
+            .filter(|bytes| bytes.len() == 32 || bytes.len() == 64);
+    }
+    
+    None
 }
