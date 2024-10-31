@@ -75,12 +75,12 @@ use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
 use serde_json::Value;
 use solana_sdk::reserved_account_keys::ReservedAccountKeys;
+use solana_transaction_status::TransactionStatusMeta;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 use std::sync::Mutex;
-
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -515,29 +515,6 @@ pub(crate) fn encode_confirmed_block(
     Ok(encoded_block)
 }
 
-fn encode_versioned_transactions(block: BlockWithoutMetadata) -> EncodedConfirmedBlock {
-    let transactions = block
-        .transactions
-        .into_iter()
-        .map(|transaction| EncodedTransactionWithStatusMeta {
-            transaction: transaction.encode(UiTransactionEncoding::Base64),
-            meta: None,
-            version: None,
-        })
-        .collect();
-
-    EncodedConfirmedBlock {
-        previous_blockhash: Hash::default().to_string(),
-        blockhash: block.blockhash,
-        parent_slot: block.parent_slot,
-        transactions,
-        rewards: Rewards::default(),
-        num_partitions: None,
-        block_time: None,
-        block_height: None,
-    }
-}
-
 pub enum BlockContents {
     VersionedConfirmedBlock(VersionedConfirmedBlock),
     BlockWithoutMetadata(BlockWithoutMetadata),
@@ -573,18 +550,40 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
             BlockContents::VersionedConfirmedBlock(block) => {
                 encode_confirmed_block(ConfirmedBlock::from(block))
             }
-            BlockContents::BlockWithoutMetadata(block) => Ok(encode_versioned_transactions(block)),
+            BlockContents::BlockWithoutMetadata(block) => Ok(EncodedConfirmedBlock {
+                previous_blockhash: Hash::default().to_string(),
+                blockhash: block.blockhash,
+                parent_slot: block.parent_slot,
+                transactions: block
+                    .transactions
+                    .into_iter()
+                    .map(|tx| EncodedTransactionWithStatusMeta {
+                        transaction: tx.encode(UiTransactionEncoding::Json),
+                        meta: None,
+                        version: None,
+                    })
+                    .collect(),
+                rewards: Rewards::default(),
+                block_time: None,
+                block_height: None,
+                num_partitions: None,
+            }),
         }
     }
 }
 
 pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot) -> Result<()> {
-    write_slots_to_csv(
+    // write_slots_to_csv(
+    //     blockstore,
+    //     blockstore.lowest_slot(),
+    //     blockstore.highest_slot().unwrap().unwrap(),
+    // );
+
+    write_blocks_to_csv(
         blockstore,
         blockstore.lowest_slot(),
         blockstore.highest_slot().unwrap().unwrap(),
     );
-
     Ok(())
 }
 
@@ -661,8 +660,8 @@ pub fn output_slot_2(
 struct ProcessingStats {
     start_time: Instant,
     last_batch_time: Instant,
+    total_blocks_processed: u64,
     total_slots_processed: u64,
-    total_records_written: u64,
     recent_rates: VecDeque<f64>,
     window_size: usize,
     total_slots: u64,
@@ -673,30 +672,30 @@ impl ProcessingStats {
         Self {
             start_time: Instant::now(),
             last_batch_time: Instant::now(),
+            total_blocks_processed: 0,
             total_slots_processed: 0,
-            total_records_written: 0,
             recent_rates: VecDeque::with_capacity(window_size),
             window_size,
-            total_slots: end_slot - start_slot,
+            total_slots: end_slot - start_slot + 1,
         }
     }
 
-    fn update(&mut self, slots_in_batch: u64, records_in_batch: u64) {
+    fn update(&mut self, slots_in_batch: u64, blocks_in_batch: u64) {
         let now = Instant::now();
         let batch_duration = now.duration_since(self.last_batch_time);
-        let rate = records_in_batch as f64 / batch_duration.as_secs_f64();
+        let rate = blocks_in_batch as f64 / batch_duration.as_secs_f64();
 
         self.total_slots_processed += slots_in_batch;
-        self.total_records_written += records_in_batch;
+        self.total_blocks_processed += blocks_in_batch;
 
-        // Using known total records for estimation
-        let total_expected_records = 230_000_000;
-        let remaining_records = total_expected_records - self.total_records_written;
+        // Calculate progress based on slots processed
+        let progress = (self.total_slots_processed as f64 / self.total_slots as f64) * 100.0;
 
-        // Calculate time remaining based on current rate
+        // Calculate time remaining based on slots left and current rate
+        let slots_remaining = self.total_slots - self.total_slots_processed;
         let current_rate =
-            self.total_records_written as f64 / now.duration_since(self.start_time).as_secs_f64();
-        let estimated_remaining_secs = remaining_records as f64 / current_rate;
+            self.total_slots_processed as f64 / now.duration_since(self.start_time).as_secs_f64();
+        let estimated_remaining_secs = slots_remaining as f64 / current_rate;
 
         // Convert to hours, minutes, seconds
         let hours = (estimated_remaining_secs / 3600.0) as u64;
@@ -705,22 +704,25 @@ impl ProcessingStats {
 
         println!(
             "Batch Stats:\n\
-             - Records: {}\n\
-             - Current Rate: {:.2} records/sec\n\
-             - Overall Rate: {:.2} records/sec\n\
-             - Total Records: {}\n\
+             - Blocks: {}\n\
+             - Current Rate: {:.2} blocks/sec\n\
+             - Overall Rate: {:.2} slots/sec\n\
+             - Total Blocks: {}\n\
+             - Total Slots: {}/{}\n\
              - Elapsed Time: {:.2}s\n\
              - Estimated Time Remaining: {}h {}m {}s\n\
              - Progress: {:.2}%",
-            records_in_batch,
+            blocks_in_batch,
             rate,
             current_rate,
-            self.total_records_written,
+            self.total_blocks_processed,
+            self.total_slots_processed,
+            self.total_slots,
             now.duration_since(self.start_time).as_secs_f64(),
             hours,
             minutes,
             seconds,
-            (self.total_slots_processed as f64 / self.total_slots as f64) * 100.0
+            progress
         );
 
         self.last_batch_time = now;
@@ -728,16 +730,16 @@ impl ProcessingStats {
 
     fn final_stats(&self) {
         let total_duration = self.last_batch_time.duration_since(self.start_time);
-        let overall_rate = self.total_records_written as f64 / total_duration.as_secs_f64();
+        let overall_rate = self.total_blocks_processed as f64 / total_duration.as_secs_f64();
 
         println!(
             "\nFinal Statistics:\n\
              - Total Slots Processed: {}\n\
-             - Total Records Written: {}\n\
-             - Overall Rate: {:.2} records/sec\n\
+             - Total Blocks Found: {}\n\
+             - Overall Rate: {:.2} blocks/sec\n\
              - Total Time: {:.2}s",
             self.total_slots_processed,
-            self.total_records_written,
+            self.total_blocks_processed,
             overall_rate,
             total_duration.as_secs_f64(),
         );
@@ -748,15 +750,18 @@ pub fn write_slots_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: S
     println!("Processing slots {} to {}", start_slot, end_slot);
 
     let stats = Arc::new(Mutex::new(ProcessingStats::new(5, start_slot, end_slot)));
-    
+
     // Create output directory and file
     let output_dir = "/root/raid/nvme/csv_output";
     std::fs::create_dir_all(output_dir).unwrap();
-    let output_file = format!("{}/transactions_{}_to_{}.csv", output_dir, start_slot, end_slot);
+    let output_file = format!(
+        "{}/transactions_{}_to_{}.csv",
+        output_dir, start_slot, end_slot
+    );
     let file = File::create(output_file).unwrap();
-    let writer = Arc::new(Mutex::new(
-        csv::Writer::from_writer(BufWriter::with_capacity(1024 * 1024 * 16, file))
-    ));
+    let writer = Arc::new(Mutex::new(csv::Writer::from_writer(
+        BufWriter::with_capacity(1024 * 1024 * 16, file),
+    )));
 
     // Process slots in parallel using rayon
     let slot_chunks: Vec<_> = (start_slot..=end_slot).collect();
@@ -764,7 +769,7 @@ pub fn write_slots_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: S
 
     slot_chunks.par_chunks(chunk_size).for_each(|slots| {
         let mut local_buffer = Vec::with_capacity(10_000);
-        
+
         for &slot in slots {
             if let Some(block_contents) = output_slot_2(
                 blockstore,
@@ -774,21 +779,19 @@ pub fn write_slots_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: S
                 1000,
                 &mut HashMap::new(),
             ) {
-                let (slot, hash, time, height, parent, transactions, reward) = 
+                let (slot, hash, time, height, parent, transactions, reward) =
                     process_block_contents(slot, block_contents);
 
                 // Add transactions to local buffer
-                for tx in transactions {
-                    local_buffer.push(vec![
-                        slot.to_string(),
-                        hash.clone(),
-                        time.to_string(),
-                        height.to_string(),
-                        parent.to_string(),
-                        base64::encode(&tx),
-                        reward.clone(),
-                    ]);
-                }
+                local_buffer.push(vec![
+                    slot.to_string(),
+                    hash.clone(),
+                    time.to_string(),
+                    height.to_string(),
+                    parent.to_string(),
+                    transactions,
+                    reward.clone(),
+                ]);
             }
         }
 
@@ -818,7 +821,7 @@ pub fn write_slots_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: S
 fn process_block_contents(
     slot: Slot,
     block_contents: BlockContents,
-) -> (Slot, String, i64, u64, u64, Vec<Vec<u8>>, String) {
+) -> (Slot, String, i64, u64, u64, String, String) {
     match block_contents {
         BlockContents::VersionedConfirmedBlock(block) => (
             slot,
@@ -826,26 +829,30 @@ fn process_block_contents(
             block.block_time.map(|t| t as i64).unwrap_or_default(),
             block.block_height.unwrap_or_default(),
             block.parent_slot,
-            block
-                .transactions
-                .into_iter()
-                .map(|tx| serde_json::to_vec(&tx).unwrap_or_default())
-                .collect(),
+            serde_json::to_string(&block.transactions).unwrap_or_default(),
             serde_json::to_string(&block.rewards).unwrap(),
         ),
-        BlockContents::BlockWithoutMetadata(block) => (
-            slot,
-            block.blockhash.clone(),
-            0,
-            0,
-            block.parent_slot,
-            block
+        BlockContents::BlockWithoutMetadata(block) => {
+            // Convert to same format as VersionedConfirmedBlock
+            let transactions: Vec<VersionedTransactionWithStatusMeta> = block
                 .transactions
                 .into_iter()
-                .map(|tx| serde_json::to_vec(&tx).unwrap_or_default())
-                .collect(),
-            "[]".to_string(),
-        ),
+                .map(|tx| VersionedTransactionWithStatusMeta {
+                    transaction: tx,
+                    meta: TransactionStatusMeta::default(),
+                })
+                .collect();
+
+            (
+                slot,
+                block.blockhash.clone(),
+                0,
+                0,
+                block.parent_slot,
+                serde_json::to_string(&transactions).unwrap_or_default(),
+                "[]".to_string(),
+            )
+        }
     }
 }
 
@@ -1321,4 +1328,138 @@ fn extract_signature(signatures_array: &Vec<Value>, _idx: usize) -> Option<Vec<u
     }
 
     None
+}
+
+pub fn write_blocks_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: Slot) {
+    println!("Processing slots {} to {}", start_slot, end_slot);
+
+    let stats = Arc::new(Mutex::new(ProcessingStats::new(5, start_slot, end_slot)));
+
+    // Create output directory and file
+    let output_dir = "/root/raid/nvme/csv_output";
+    std::fs::create_dir_all(output_dir).unwrap();
+    let output_file = format!("{}/blocks_{}_to_{}.csv", output_dir, start_slot, end_slot);
+    let file = File::create(output_file).unwrap();
+    let writer = csv::Writer::from_writer(BufWriter::with_capacity(64 * 1024 * 1024, file));
+    let writer = Arc::new(Mutex::new(writer));
+
+    // Write CSV header once at start
+    writer
+        .lock()
+        .unwrap()
+        .write_record(&[
+            "slot",
+            "block_status",
+            "blockhash",
+            "parent_slot",
+            "transactions",
+            "rewards",
+            "num_partitions",
+            "block_time",
+            "block_height",
+            "shred_count",
+            "is_full",
+            "parent_exists",
+            "previous_blockhash",
+        ])
+        .unwrap();
+
+    // Process slots in parallel using rayon
+    let slot_chunks: Vec<_> = (start_slot..=end_slot).collect();
+    let chunk_size = 1000;
+
+    slot_chunks.par_chunks(chunk_size).for_each(|slots| {
+        // Large local buffer to minimize lock acquisitions
+        let mut local_buffer = Vec::with_capacity(chunk_size * 2);
+
+        // Process all slots in chunk
+        for &slot in slots {
+            if let Ok(Some(meta)) = blockstore.meta(slot) {
+                if let Some(block_contents) = output_slot_2(
+                    blockstore,
+                    slot,
+                    true,
+                    &OutputFormat::DisplayVerbose,
+                    1000,
+                    &mut HashMap::new(),
+                ) {
+                    match block_contents {
+                        BlockContents::VersionedConfirmedBlock(block) => {
+                            local_buffer.push(vec![
+                                slot.to_string(),
+                                "confirmed".to_string(),
+                                block.blockhash.to_string(),
+                                block.parent_slot.to_string(),
+                                serde_json::to_string(&block.transactions).unwrap_or_default(),
+                                serde_json::to_string(&block.rewards).unwrap_or_default(),
+                                block
+                                    .num_partitions
+                                    .map_or("".to_string(), |n| n.to_string()),
+                                block.block_time.map_or("".to_string(), |t| t.to_string()),
+                                block.block_height.map_or("".to_string(), |h| h.to_string()),
+                                meta.consumed.to_string(),
+                                meta.is_full().to_string(),
+                                meta.parent_slot
+                                    .map_or("false".to_string(), |_| "true".to_string()),
+                                block.previous_blockhash.to_string(),
+                            ]);
+                        }
+                        BlockContents::BlockWithoutMetadata(block) => {
+                            local_buffer.push(vec![
+                                slot.to_string(),
+                                "unconfirmed".to_string(),
+                                block.blockhash.clone(),
+                                block.parent_slot.to_string(),
+                                serde_json::to_string(&block.transactions).unwrap_or_default(),
+                                "[]".to_string(),
+                                "".to_string(),
+                                "".to_string(),
+                                "".to_string(),
+                                meta.consumed.to_string(),
+                                meta.is_full().to_string(),
+                                meta.parent_slot
+                                    .map_or("false".to_string(), |_| "true".to_string()),
+                                "".to_string(),
+                            ]);
+                        }
+                    }
+                } else {
+                    // Has metadata but no block/entries
+                    local_buffer.push(vec![
+                        slot.to_string(),
+                        "partial".to_string(),
+                        "".to_string(),
+                        meta.parent_slot.map_or("".to_string(), |p| p.to_string()),
+                        "[]".to_string(),
+                        "[]".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        meta.consumed.to_string(),
+                        meta.is_full().to_string(),
+                        meta.parent_slot
+                            .map_or("false".to_string(), |_| "true".to_string()),
+                    ]);
+                }
+            }
+        }
+
+        // Single lock acquisition to write entire batch
+        if !local_buffer.is_empty() {
+            let mut writer = writer.lock().unwrap();
+            for record in local_buffer {
+                writer.write_record(&record).unwrap();
+            }
+            writer.flush().unwrap();
+        }
+
+        // Update stats
+        // let mut stats = stats.lock().unwrap();
+        // stats.update(chunk_size as u64, local_buffer.len() as u64);
+    });
+
+    // Print final stats
+    let stats = stats.lock().unwrap();
+    stats.final_stats();
 }

@@ -87,18 +87,8 @@ async fn upload(
     //     info!("last slot checked: {}", last_slot_checked);
     //     starting_slot = last_slot_checked.saturating_add(1);
     // }
-    println!(
-        "Blockstore slot range:\n\
-         First available block: {}\n\
-         Max root: {}\n\
-         Highest slot: {}",
-        blockstore.get_first_available_block()?,
-        blockstore.max_root(),
-        blockstore.highest_slot().unwrap().unwrap()
-    );
-    //output_slot_wrapper(&blockstore, starting_slot)?;
+    output_slot_wrapper(&blockstore, starting_slot)?;
 
-    upload_confirmed_blocks(blockstore, starting_slot).await;
     info!("No more blocks to upload.");
     Ok(())
 }
