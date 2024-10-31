@@ -1,23 +1,20 @@
-use crate::blockstore_meta::SlotMeta;
-use solana_sdk::pubkey::Pubkey;
-use solana_transaction_status::ConfirmedBlock;
-use std::collections::HashMap;
-use {
-    crate::blockstore::Blockstore,
-    crossbeam_channel::{bounded, unbounded},
-    log::*,
-    solana_measure::measure::Measure,
-    solana_sdk::clock::Slot,
-    std::{
-        cmp::{max, min},
-        collections::HashSet,
-        result::Result,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        },
-        time::{Duration, Instant},
+use crate::blockstore::Blockstore;
+use bincode;
+use crossbeam_channel::{bounded, unbounded};
+use log::*;
+use solana_measure::measure::Measure;
+use solana_sdk::clock::Slot;
+use solana_storage_proto::convert::generated;
+use solana_transaction_status::VersionedConfirmedBlockWithEntries;
+use std::{
+    fs::File,
+    io::BufWriter,
+    result::Result,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
+    time::{Duration, Instant},
 };
 
 #[derive(Clone)]
@@ -25,7 +22,7 @@ pub struct ConfirmedBlockUploadConfig {
     pub force_reupload: bool,
     pub max_num_slots_to_check: usize,
     pub num_blocks_to_upload_in_parallel: usize,
-    pub block_read_ahead_depth: usize, // should always be >= `num_blocks_to_upload_in_parallel`
+    pub block_read_ahead_depth: usize,
 }
 
 impl Default for ConfirmedBlockUploadConfig {
@@ -40,15 +37,36 @@ impl Default for ConfirmedBlockUploadConfig {
     }
 }
 
+struct BlockstoreLoadStats {
+    num_blocks_read: usize,
+    elapsed: Duration,
+}
+
+// Add this temporary debug function
+
 pub async fn upload_confirmed_blocks(
     blockstore: Arc<Blockstore>,
     starting_slot: Slot,
-    ending_slot: Slot,
-    config: ConfirmedBlockUploadConfig,
-    exit: Arc<AtomicBool>,
 ) -> Result<Slot, Box<dyn std::error::Error>> {
-    let allow_dead_slots = true; // You might want to make this configurable
-    let verbose_level = 1; // Adjust as needed
+    panic!();
+}
 
-    Ok(starting_slot)
+fn process_block_to_csv(
+    slot: Slot,
+    block: VersionedConfirmedBlockWithEntries,
+    writer: Arc<Mutex<csv::Writer<BufWriter<File>>>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let timestamp = block.block.block_time.unwrap_or(0);
+
+    for transaction in block.block.transactions {
+        let mut writer = writer.lock().unwrap();
+        writer.write_record(&[
+            transaction.transaction.signatures[0].to_string(),
+            transaction.transaction.message.static_account_keys()[0].to_string(),
+            slot.to_string(),
+            timestamp.to_string(),
+        ])?;
+    }
+
+    Ok(())
 }

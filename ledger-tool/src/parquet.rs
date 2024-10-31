@@ -1,4 +1,5 @@
 use crate::output::output_slot_wrapper;
+use solana_ledger::parquet_upload::upload_confirmed_blocks;
 use std::collections::HashMap;
 use {
     crate::{
@@ -46,7 +47,6 @@ use {
         sync::{atomic::AtomicBool, Arc, Mutex},
     },
 };
-
 async fn upload(
     blockstore: Blockstore,
     starting_slot: Option<Slot>,
@@ -87,9 +87,18 @@ async fn upload(
     //     info!("last slot checked: {}", last_slot_checked);
     //     starting_slot = last_slot_checked.saturating_add(1);
     // }
+    println!(
+        "Blockstore slot range:\n\
+         First available block: {}\n\
+         Max root: {}\n\
+         Highest slot: {}",
+        blockstore.get_first_available_block()?,
+        blockstore.max_root(),
+        blockstore.highest_slot().unwrap().unwrap()
+    );
+    //output_slot_wrapper(&blockstore, starting_slot)?;
 
-    output_slot_wrapper(&blockstore, starting_slot)?;
-
+    upload_confirmed_blocks(blockstore, starting_slot).await;
     info!("No more blocks to upload.");
     Ok(())
 }

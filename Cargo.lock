@@ -159,6 +159,7 @@ version = "2.1.0"
 dependencies = [
  "arrow",
  "assert_cmd",
+ "base64 0.22.1",
  "bincode",
  "bs58",
  "bytecount",
@@ -7994,6 +7995,7 @@ dependencies = [
  "chrono",
  "chrono-humanize",
  "crossbeam-channel",
+ "csv",
  "dashmap 5.5.3",
  "eager",
  "fs_extra",
