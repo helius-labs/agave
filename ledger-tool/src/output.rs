@@ -80,6 +80,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Mutex;
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -572,7 +573,7 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
     }
 }
 
-pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot) -> Result<()> {
+pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot, output_dir: PathBuf) -> Result<()> {
     // write_slots_to_csv(
     //     blockstore,
     //     blockstore.lowest_slot(),
@@ -583,6 +584,7 @@ pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot) -> Result<()> {
         blockstore,
         blockstore.lowest_slot(),
         blockstore.highest_slot().unwrap().unwrap(),
+        output_dir,
     );
     Ok(())
 }
@@ -1330,13 +1332,18 @@ fn extract_signature(signatures_array: &Vec<Value>, _idx: usize) -> Option<Vec<u
     None
 }
 
-pub fn write_blocks_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: Slot) {
+pub fn write_blocks_to_csv(
+    blockstore: &Blockstore,
+    start_slot: Slot,
+    end_slot: Slot,
+    output_dir: PathBuf,
+) {
     println!("Processing slots {} to {}", start_slot, end_slot);
 
     let stats = Arc::new(Mutex::new(ProcessingStats::new(5, start_slot, end_slot)));
 
     // Create output directory and file
-    let output_dir = "/root/raid/nvme/csv_output";
+    let output_dir = output_dir.to_str().unwrap();
     std::fs::create_dir_all(output_dir).unwrap();
     let output_file = format!("{}/blocks_{}_to_{}.csv", output_dir, start_slot, end_slot);
     let file = File::create(output_file).unwrap();

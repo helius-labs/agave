@@ -1,6 +1,7 @@
 use crate::output::output_slot_wrapper;
 use solana_ledger::parquet_upload::upload_confirmed_blocks;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use {
     crate::{
         args::{load_genesis_arg, snapshot_args},
@@ -53,6 +54,7 @@ async fn upload(
     ending_slot: Option<Slot>,
     force_reupload: bool,
     config: solana_storage_bigtable::LedgerStorageConfig,
+    output_dir: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = ConfirmedBlockUploadConfig {
         force_reupload,
@@ -87,7 +89,7 @@ async fn upload(
     //     info!("last slot checked: {}", last_slot_checked);
     //     starting_slot = last_slot_checked.saturating_add(1);
     // }
-    output_slot_wrapper(&blockstore, starting_slot)?;
+    output_slot_wrapper(&blockstore, starting_slot, output_dir)?;
 
     info!("No more blocks to upload.");
     Ok(())
@@ -132,6 +134,7 @@ pub fn parquet_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
         ("upload", Some(arg_matches)) => {
             let starting_slot = value_t!(arg_matches, "starting_slot", Slot).ok();
             let ending_slot = value_t!(arg_matches, "ending_slot", Slot).ok();
+            let output_dir = value_t!(arg_matches, "output_dir", PathBuf).ok();
             let force_reupload = arg_matches.is_present("force_reupload");
             let blockstore = crate::open_blockstore(
                 &canonicalize_ledger_path(ledger_path),
@@ -150,6 +153,7 @@ pub fn parquet_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
                 ending_slot,
                 force_reupload,
                 config,
+                output_dir.unwrap(),
             ))
         }
         _ => unreachable!(),
@@ -194,6 +198,13 @@ impl ParquetSubCommand for App<'_, '_> {
                                 .takes_value(true)
                                 .index(2)
                                 .help("Stop uploading at this slot [default: last available slot]"),
+                        )
+                        .arg(
+                            Arg::with_name("output_dir")
+                                .long("output-dir")
+                                .value_name("OUTPUT_DIR")
+                                .takes_value(true)
+                                .help("Directory to output csvs to"),
                         )
                         .arg(
                             Arg::with_name("force_reupload")
