@@ -767,7 +767,7 @@ pub fn write_slots_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: S
 
     // Process slots in parallel using rayon
     let slot_chunks: Vec<_> = (start_slot..=end_slot).collect();
-    let chunk_size = 1000; // Process 1000 slots at a time
+    let chunk_size = 100; // Process 1000 slots at a time
 
     slot_chunks.par_chunks(chunk_size).for_each(|slots| {
         let mut local_buffer = Vec::with_capacity(10_000);
@@ -1340,8 +1340,6 @@ pub fn write_blocks_to_csv(
 ) {
     println!("Processing slots {} to {}", start_slot, end_slot);
 
-    let stats = Arc::new(Mutex::new(ProcessingStats::new(5, start_slot, end_slot)));
-
     // Create output directory and file
     let output_dir = output_dir.to_str().unwrap();
     std::fs::create_dir_all(output_dir).unwrap();
@@ -1350,7 +1348,7 @@ pub fn write_blocks_to_csv(
     let writer = csv::Writer::from_writer(BufWriter::with_capacity(64 * 1024 * 1024, file));
     let writer = Arc::new(Mutex::new(writer));
 
-    // Write CSV header once at start
+    // Write CSV header
     writer
         .lock()
         .unwrap()
@@ -1371,102 +1369,106 @@ pub fn write_blocks_to_csv(
         ])
         .unwrap();
 
-    // Process slots in parallel using rayon
-    let slot_chunks: Vec<_> = (start_slot..=end_slot).collect();
-    let chunk_size = 1000;
+    // Process in smaller chunks to manage memory
+    let slot_range = 50_000;
+    let mut current_start = start_slot;
 
-    slot_chunks.par_chunks(chunk_size).for_each(|slots| {
-        // Large local buffer to minimize lock acquisitions
-        let mut local_buffer = Vec::with_capacity(chunk_size * 2);
+    while current_start <= end_slot {
+        let chunk_end = std::cmp::min(current_start + slot_range, end_slot);
+        println!("Processing slot chunk {} to {}", current_start, chunk_end);
 
-        // Process all slots in chunk
-        for &slot in slots {
-            if let Ok(Some(meta)) = blockstore.meta(slot) {
-                if let Some(block_contents) = output_slot_2(
-                    blockstore,
-                    slot,
-                    true,
-                    &OutputFormat::DisplayVerbose,
-                    1000,
-                    &mut HashMap::new(),
-                ) {
-                    match block_contents {
-                        BlockContents::VersionedConfirmedBlock(block) => {
-                            local_buffer.push(vec![
-                                slot.to_string(),
-                                "confirmed".to_string(),
-                                block.blockhash.to_string(),
-                                block.parent_slot.to_string(),
-                                serde_json::to_string(&block.transactions).unwrap_or_default(),
-                                serde_json::to_string(&block.rewards).unwrap_or_default(),
-                                block
-                                    .num_partitions
-                                    .map_or("".to_string(), |n| n.to_string()),
-                                block.block_time.map_or("".to_string(), |t| t.to_string()),
-                                block.block_height.map_or("".to_string(), |h| h.to_string()),
-                                meta.consumed.to_string(),
-                                meta.is_full().to_string(),
-                                meta.parent_slot
-                                    .map_or("false".to_string(), |_| "true".to_string()),
-                                block.previous_blockhash.to_string(),
-                            ]);
+        // Process this range of slots
+        let slot_chunks: Vec<_> = (current_start..=chunk_end).collect();
+        let chunk_size = 100;
+
+        slot_chunks.par_chunks(chunk_size).for_each(|slots| {
+            let mut local_buffer: Vec<Vec<String>> = Vec::with_capacity(chunk_size * 2);
+
+            for &slot in slots {
+                if let Ok(Some(meta)) = blockstore.meta(slot) {
+                    if let Some(block_contents) = output_slot_2(
+                        blockstore,
+                        slot,
+                        true,
+                        &OutputFormat::DisplayVerbose,
+                        1000,
+                        &mut HashMap::new(),
+                    ) {
+                        match block_contents {
+                            BlockContents::VersionedConfirmedBlock(block) => {
+                                local_buffer.push(vec![
+                                    slot.to_string(),
+                                    "confirmed".to_string(),
+                                    block.blockhash.to_string(),
+                                    block.parent_slot.to_string(),
+                                    serde_json::to_string(&block.transactions).unwrap_or_default(),
+                                    serde_json::to_string(&block.rewards).unwrap_or_default(),
+                                    block
+                                        .num_partitions
+                                        .map_or("".to_string(), |n| n.to_string()),
+                                    block.block_time.map_or("".to_string(), |t| t.to_string()),
+                                    block.block_height.map_or("".to_string(), |h| h.to_string()),
+                                    meta.consumed.to_string(),
+                                    meta.is_full().to_string(),
+                                    meta.parent_slot
+                                        .map_or("false".to_string(), |_| "true".to_string()),
+                                    block.previous_blockhash.to_string(),
+                                ]);
+                            }
+                            BlockContents::BlockWithoutMetadata(block) => {
+                                local_buffer.push(vec![
+                                    slot.to_string(),
+                                    "unconfirmed".to_string(),
+                                    block.blockhash.clone(),
+                                    block.parent_slot.to_string(),
+                                    serde_json::to_string(&block.transactions).unwrap_or_default(),
+                                    "[]".to_string(),
+                                    "".to_string(),
+                                    "".to_string(),
+                                    "".to_string(),
+                                    meta.consumed.to_string(),
+                                    meta.is_full().to_string(),
+                                    meta.parent_slot
+                                        .map_or("false".to_string(), |_| "true".to_string()),
+                                    "".to_string(),
+                                ]);
+                            }
                         }
-                        BlockContents::BlockWithoutMetadata(block) => {
-                            local_buffer.push(vec![
-                                slot.to_string(),
-                                "unconfirmed".to_string(),
-                                block.blockhash.clone(),
-                                block.parent_slot.to_string(),
-                                serde_json::to_string(&block.transactions).unwrap_or_default(),
-                                "[]".to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                                meta.consumed.to_string(),
-                                meta.is_full().to_string(),
-                                meta.parent_slot
-                                    .map_or("false".to_string(), |_| "true".to_string()),
-                                "".to_string(),
-                            ]);
-                        }
+                    } else {
+                        // Has metadata but no block/entries
+                        local_buffer.push(vec![
+                            slot.to_string(),
+                            "partial".to_string(),
+                            "".to_string(),
+                            meta.parent_slot.map_or("".to_string(), |p| p.to_string()),
+                            "[]".to_string(),
+                            "[]".to_string(),
+                            "".to_string(),
+                            "".to_string(),
+                            "".to_string(),
+                            "".to_string(),
+                            meta.consumed.to_string(),
+                            meta.is_full().to_string(),
+                            meta.parent_slot
+                                .map_or("false".to_string(), |_| "true".to_string()),
+                        ]);
                     }
-                } else {
-                    // Has metadata but no block/entries
-                    local_buffer.push(vec![
-                        slot.to_string(),
-                        "partial".to_string(),
-                        "".to_string(),
-                        meta.parent_slot.map_or("".to_string(), |p| p.to_string()),
-                        "[]".to_string(),
-                        "[]".to_string(),
-                        "".to_string(),
-                        "".to_string(),
-                        "".to_string(),
-                        "".to_string(),
-                        meta.consumed.to_string(),
-                        meta.is_full().to_string(),
-                        meta.parent_slot
-                            .map_or("false".to_string(), |_| "true".to_string()),
-                    ]);
                 }
             }
-        }
 
-        // Single lock acquisition to write entire batch
-        if !local_buffer.is_empty() {
-            let mut writer = writer.lock().unwrap();
-            for record in local_buffer {
-                writer.write_record(&record).unwrap();
+            if !local_buffer.is_empty() {
+                let mut writer = writer.lock().unwrap();
+                for record in local_buffer {
+                    writer.write_record(&record).unwrap();
+                }
+                writer.flush().unwrap();
             }
-            writer.flush().unwrap();
-        }
+        });
 
-        // Update stats
-        // let mut stats = stats.lock().unwrap();
-        // stats.update(chunk_size as u64, local_buffer.len() as u64);
-    });
+        // Move to next chunk
+        current_start = chunk_end + 1;
 
-    // Print final stats
-    let stats = stats.lock().unwrap();
-    stats.final_stats();
+        // Force memory cleanup between chunks
+        drop(slot_chunks);
+    }
 }
