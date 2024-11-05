@@ -69,6 +69,7 @@ use datafusion::logical_expr::{create_udf, Volatility};
 use datafusion::prelude::*;
 use downcast::Any;
 use futures::executor::block_on;
+use log::{error, info, warn};
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
@@ -82,6 +83,7 @@ use std::io::BufWriter;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
+
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotInfo {
@@ -574,12 +576,6 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
 }
 
 pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot, output_dir: PathBuf) -> Result<()> {
-    // write_slots_to_csv(
-    //     blockstore,
-    //     blockstore.lowest_slot(),
-    //     blockstore.highest_slot().unwrap().unwrap(),
-    // );
-
     write_blocks_to_csv(
         blockstore,
         blockstore.lowest_slot(),
@@ -589,7 +585,7 @@ pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot, output_dir: Path
     Ok(())
 }
 
-pub fn output_slot_2(
+pub fn get_block(
     blockstore: &Blockstore,
     slot: Slot,
     allow_dead_slots: bool,
@@ -746,77 +742,6 @@ impl ProcessingStats {
             total_duration.as_secs_f64(),
         );
     }
-}
-
-pub fn write_slots_to_csv(blockstore: &Blockstore, start_slot: Slot, end_slot: Slot) {
-    println!("Processing slots {} to {}", start_slot, end_slot);
-
-    let stats = Arc::new(Mutex::new(ProcessingStats::new(5, start_slot, end_slot)));
-
-    // Create output directory and file
-    let output_dir = "/root/raid/nvme/csv_output";
-    std::fs::create_dir_all(output_dir).unwrap();
-    let output_file = format!(
-        "{}/transactions_{}_to_{}.csv",
-        output_dir, start_slot, end_slot
-    );
-    let file = File::create(output_file).unwrap();
-    let writer = Arc::new(Mutex::new(csv::Writer::from_writer(
-        BufWriter::with_capacity(1024 * 1024 * 16, file),
-    )));
-
-    // Process slots in parallel using rayon
-    let slot_chunks: Vec<_> = (start_slot..=end_slot).collect();
-    let chunk_size = 100; // Process 1000 slots at a time
-
-    slot_chunks.par_chunks(chunk_size).for_each(|slots| {
-        let mut local_buffer = Vec::with_capacity(10_000);
-
-        for &slot in slots {
-            if let Some(block_contents) = output_slot_2(
-                blockstore,
-                slot,
-                true,
-                &OutputFormat::DisplayVerbose,
-                1000,
-                &mut HashMap::new(),
-            ) {
-                let (slot, hash, time, height, parent, transactions, reward) =
-                    process_block_contents(slot, block_contents);
-
-                // Add transactions to local buffer
-                local_buffer.push(vec![
-                    slot.to_string(),
-                    hash.clone(),
-                    time.to_string(),
-                    height.to_string(),
-                    parent.to_string(),
-                    transactions,
-                    reward.clone(),
-                ]);
-            }
-        }
-
-        // Get buffer length before consuming it
-        let records_processed = local_buffer.len() as u64;
-
-        // Write local buffer
-        if !local_buffer.is_empty() {
-            let mut writer = writer.lock().unwrap();
-            for record in local_buffer {
-                writer.write_record(&record).unwrap();
-            }
-            writer.flush().unwrap();
-        }
-
-        // Update stats
-        let mut stats = stats.lock().unwrap();
-        stats.update(chunk_size as u64, records_processed);
-    });
-
-    // Print final stats
-    let stats = stats.lock().unwrap();
-    stats.final_stats();
 }
 
 // Helper function to process block contents
@@ -1296,13 +1221,18 @@ pub fn write_blocks_to_csv(
     end_slot: Slot,
     output_dir: PathBuf,
 ) -> Result<()> {
-    println!("Processing slots {} to {}", start_slot, end_slot);
+    info!("Processing slots {} to {}", start_slot, end_slot);
 
     // Create output directory and file
-    let output_dir = output_dir
-        .to_str()
-        .ok_or_else(|| LedgerToolError::Generic("Invalid output directory path".to_string()))?;
-    std::fs::create_dir_all(output_dir).map_err(|e| LedgerToolError::Io(e))?;
+    let output_dir = output_dir.to_str().ok_or_else(|| {
+        error!("Invalid output directory path: {:?}", output_dir);
+        LedgerToolError::Generic("Invalid output directory path".to_string())
+    })?;
+
+    std::fs::create_dir_all(output_dir).map_err(|e| {
+        error!("Failed to create directory {}: {}", output_dir, e);
+        LedgerToolError::Io(e)
+    })?;
 
     let output_file = format!("{}/blocks_{}_to_{}.csv", output_dir, start_slot, end_slot);
     let file = File::create(output_file).map_err(|e| LedgerToolError::Io(e))?;
@@ -1336,7 +1266,7 @@ pub fn write_blocks_to_csv(
 
     while current_start <= end_slot {
         let chunk_end = std::cmp::min(current_start + slot_range, end_slot);
-        println!("Processing slot chunk {} to {}", current_start, chunk_end);
+        info!("Processing slot chunk {} to {}", current_start, chunk_end);
 
         let slot_chunks: Vec<_> = (current_start..=chunk_end).collect();
         let chunk_size = 100;
@@ -1347,91 +1277,29 @@ pub fn write_blocks_to_csv(
                 let mut local_buffer: Vec<Vec<String>> = Vec::with_capacity(chunk_size * 2);
 
                 for &slot in slots {
-                    if let Ok(Some(meta)) = blockstore.meta(slot) {
-                        if let Some(block_contents) = output_slot_2(
-                            blockstore,
-                            slot,
-                            true,
-                            &OutputFormat::DisplayVerbose,
-                            1000,
-                            &mut HashMap::new(),
-                        ) {
-                            match block_contents {
-                                BlockContents::VersionedConfirmedBlock(block) => {
-                                    local_buffer.push(vec![
-                                        slot.to_string(),
-                                        "confirmed".to_string(),
-                                        block.blockhash.to_string(),
-                                        block.parent_slot.to_string(),
-                                        serde_json::to_string(&block.transactions)
-                                            .map_err(|e| LedgerToolError::SerdeJson(e))?,
-                                        serde_json::to_string(&block.rewards)
-                                            .map_err(|e| LedgerToolError::SerdeJson(e))?,
-                                        block
-                                            .num_partitions
-                                            .map_or("".to_string(), |n| n.to_string()),
-                                        block.block_time.map_or("".to_string(), |t| t.to_string()),
-                                        block
-                                            .block_height
-                                            .map_or("".to_string(), |h| h.to_string()),
-                                        meta.consumed.to_string(),
-                                        meta.is_full().to_string(),
-                                        meta.parent_slot
-                                            .map_or("false".to_string(), |_| "true".to_string()),
-                                        block.previous_blockhash.to_string(),
-                                    ]);
-                                }
-                                BlockContents::BlockWithoutMetadata(block) => {
-                                    local_buffer.push(vec![
-                                        slot.to_string(),
-                                        "unconfirmed".to_string(),
-                                        block.blockhash.clone(),
-                                        block.parent_slot.to_string(),
-                                        serde_json::to_string(&block.transactions)
-                                            .map_err(|e| LedgerToolError::SerdeJson(e))?,
-                                        "[]".to_string(),
-                                        "".to_string(),
-                                        "".to_string(),
-                                        "".to_string(),
-                                        meta.consumed.to_string(),
-                                        meta.is_full().to_string(),
-                                        meta.parent_slot
-                                            .map_or("false".to_string(), |_| "true".to_string()),
-                                        "".to_string(),
-                                    ]);
-                                }
-                            }
-                        } else {
-                            local_buffer.push(vec![
-                                slot.to_string(),
-                                "partial".to_string(),
-                                "".to_string(),
-                                meta.parent_slot.map_or("".to_string(), |p| p.to_string()),
-                                "[]".to_string(),
-                                "[]".to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                                "".to_string(),
-                                meta.consumed.to_string(),
-                                meta.is_full().to_string(),
-                                meta.parent_slot
-                                    .map_or("false".to_string(), |_| "true".to_string()),
-                            ]);
-                        }
+                    if let Err(e) = process_slot(blockstore, slot, &mut local_buffer) {
+                        error!("Failed to process slot {}: {}", slot, e);
+                        return Err(e);
                     }
                 }
 
                 if !local_buffer.is_empty() {
-                    let mut writer = writer
-                        .lock()
-                        .map_err(|e| LedgerToolError::Generic(format!("Lock error: {}", e)))?;
+                    let mut writer = writer.lock().map_err(|e| {
+                        error!("Failed to acquire lock: {}", e);
+                        LedgerToolError::Generic(format!("Lock error: {}", e))
+                    })?;
+
                     for record in local_buffer {
                         writer.write_record(&record).map_err(|e| {
+                            error!("Failed to write record: {}", e);
                             LedgerToolError::Generic(format!("CSV write error: {}", e))
                         })?;
                     }
-                    writer.flush().map_err(LedgerToolError::Io)?;
+
+                    writer.flush().map_err(|e| {
+                        error!("Failed to flush writer: {}", e);
+                        LedgerToolError::Io(e)
+                    })?;
                 }
 
                 Ok(())
@@ -1442,4 +1310,127 @@ pub fn write_blocks_to_csv(
     }
 
     Ok(())
+}
+
+fn process_slot(
+    blockstore: &Blockstore,
+    slot: Slot,
+    local_buffer: &mut Vec<Vec<String>>,
+) -> Result<()> {
+    match blockstore.meta(slot) {
+        Ok(Some(meta)) => {
+            if let Some(block_contents) = get_block(
+                blockstore,
+                slot,
+                true,
+                &OutputFormat::DisplayVerbose,
+                1000,
+                &mut HashMap::new(),
+            ) {
+                match block_contents {
+                    BlockContents::VersionedConfirmedBlock(block) => {
+                        process_confirmed_block(slot, block, meta, local_buffer)
+                    }
+                    BlockContents::BlockWithoutMetadata(block) => {
+                        process_unconfirmed_block(slot, block, meta, local_buffer)
+                    }
+                }
+            } else {
+                process_partial_block(slot, meta, local_buffer);
+                Ok(())
+            }
+        }
+        Ok(None) => {
+            warn!("No metadata found for slot {}", slot);
+            Ok(())
+        }
+        Err(e) => {
+            error!("Error fetching metadata for slot {}: {}", slot, e);
+            Err(LedgerToolError::Blockstore(e))
+        }
+    }
+}
+
+fn process_confirmed_block(
+    slot: Slot,
+    block: VersionedConfirmedBlock,
+    meta: solana_ledger::blockstore_meta::SlotMeta,
+    local_buffer: &mut Vec<Vec<String>>,
+) -> Result<()> {
+    local_buffer.push(vec![
+        slot.to_string(),
+        "confirmed".to_string(),
+        block.blockhash.to_string(),
+        block.parent_slot.to_string(),
+        serde_json::to_string(&block.transactions).map_err(|e| {
+            error!("Failed to serialize transactions for slot {}: {}", slot, e);
+            LedgerToolError::SerdeJson(e)
+        })?,
+        serde_json::to_string(&block.rewards).map_err(|e| {
+            error!("Failed to serialize rewards for slot {}: {}", slot, e);
+            LedgerToolError::SerdeJson(e)
+        })?,
+        block
+            .num_partitions
+            .map_or("".to_string(), |n| n.to_string()),
+        block.block_time.map_or("".to_string(), |t| t.to_string()),
+        block.block_height.map_or("".to_string(), |h| h.to_string()),
+        meta.consumed.to_string(),
+        meta.is_full().to_string(),
+        meta.parent_slot
+            .map_or("false".to_string(), |_| "true".to_string()),
+        block.previous_blockhash.to_string(),
+    ]);
+    Ok(())
+}
+
+fn process_unconfirmed_block(
+    slot: Slot,
+    block: BlockWithoutMetadata,
+    meta: solana_ledger::blockstore_meta::SlotMeta,
+    local_buffer: &mut Vec<Vec<String>>,
+) -> Result<()> {
+    local_buffer.push(vec![
+        slot.to_string(),
+        "unconfirmed".to_string(),
+        block.blockhash.clone(),
+        block.parent_slot.to_string(),
+        serde_json::to_string(&block.transactions).map_err(|e| {
+            error!("Failed to serialize transactions for slot {}: {}", slot, e);
+            LedgerToolError::SerdeJson(e)
+        })?,
+        "[]".to_string(),
+        "".to_string(),
+        "".to_string(),
+        "".to_string(),
+        meta.consumed.to_string(),
+        meta.is_full().to_string(),
+        meta.parent_slot
+            .map_or("false".to_string(), |_| "true".to_string()),
+        "".to_string(),
+    ]);
+    Ok(())
+}
+
+fn process_partial_block(
+    slot: Slot,
+    meta: solana_ledger::blockstore_meta::SlotMeta,
+    local_buffer: &mut Vec<Vec<String>>,
+) {
+    local_buffer.push(vec![
+        slot.to_string(),
+        "partial".to_string(),
+        "".to_string(),
+        meta.parent_slot.map_or("".to_string(), |p| p.to_string()),
+        "[]".to_string(),
+        "[]".to_string(),
+        "".to_string(),
+        "".to_string(),
+        "".to_string(),
+        "".to_string(),
+        meta.consumed.to_string(),
+        meta.is_full().to_string(),
+        meta.parent_slot
+            .map_or("false".to_string(), |_| "true".to_string()),
+    ]);
 }

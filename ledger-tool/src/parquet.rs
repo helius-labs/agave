@@ -73,22 +73,6 @@ async fn upload(
 
     let ending_slot = ending_slot.unwrap_or_else(|| blockstore.max_root());
 
-    // while starting_slot <= ending_slot {
-    //     let current_ending_slot = min(
-    //         ending_slot,
-    //         starting_slot.saturating_add(config.max_num_slots_to_check as u64 * 2),
-    //     );
-    //     let last_slot_checked = solana_ledger::parquet_upload::upload_confirmed_blocks(
-    //         blockstore.clone(),
-    //         starting_slot,
-    //         current_ending_slot,
-    //         config.clone(),
-    //         Arc::new(AtomicBool::new(false)),
-    //     )
-    //     .await?;
-    //     info!("last slot checked: {}", last_slot_checked);
-    //     starting_slot = last_slot_checked.saturating_add(1);
-    // }
     output_slot_wrapper(&blockstore, starting_slot, output_dir)?;
 
     info!("No more blocks to upload.");
