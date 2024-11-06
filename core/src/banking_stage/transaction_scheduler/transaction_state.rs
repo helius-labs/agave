@@ -231,16 +231,8 @@ mod tests {
             ImmutableDeserializedPacket::new(Packet::from_data(None, tx.clone()).unwrap()).unwrap(),
         );
         let transaction_ttl = SanitizedTransactionTTL {
-<<<<<<< HEAD
             transaction: SanitizedTransaction::from_transaction_for_tests(tx),
-            max_age: MaxAge {
-                epoch_invalidation_slot: Slot::MAX,
-                alt_invalidation_slot: Slot::MAX,
-            },
-=======
-            transaction: RuntimeTransaction::from_transaction_for_tests(tx),
             max_age: MaxAge::MAX,
->>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
         };
         const TEST_TRANSACTION_COST: u64 = 5000;
         TransactionState::new(

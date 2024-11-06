@@ -1,13 +1,8 @@
 use {
-<<<<<<< HEAD
-    solana_sdk::{clock::Slot, transaction::SanitizedTransaction},
-=======
-    solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
     solana_sdk::{
         clock::{Epoch, Slot},
         transaction::SanitizedTransaction,
     },
->>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
     std::fmt::Display,
 };
 
