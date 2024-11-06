@@ -155,6 +155,7 @@ mod tests {
         super::*,
         crate::banking_stage::scheduler_messages::MaxAge,
         solana_sdk::{
+<<<<<<< HEAD
             compute_budget::ComputeBudgetInstruction,
             hash::Hash,
             message::Message,
@@ -164,6 +165,10 @@ mod tests {
             slot_history::Slot,
             system_instruction,
             transaction::{SanitizedTransaction, Transaction},
+=======
+            compute_budget::ComputeBudgetInstruction, hash::Hash, message::Message, packet::Packet,
+            signature::Keypair, signer::Signer, system_instruction, transaction::Transaction,
+>>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
         },
     };
 
@@ -199,10 +204,7 @@ mod tests {
         );
         let transaction_ttl = SanitizedTransactionTTL {
             transaction: tx,
-            max_age: MaxAge {
-                epoch_invalidation_slot: Slot::MAX,
-                alt_invalidation_slot: Slot::MAX,
-            },
+            max_age: MaxAge::MAX,
         };
         const TEST_TRANSACTION_COST: u64 = 5000;
         (transaction_ttl, packet, priority, TEST_TRANSACTION_COST)
