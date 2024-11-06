@@ -1,16 +1,10 @@
 use {
-<<<<<<< HEAD
     super::immutable_deserialized_packet::ImmutableDeserializedPacket,
-    solana_sdk::{clock::Slot, transaction::SanitizedTransaction},
-    std::{fmt::Display, sync::Arc},
-=======
-    solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
     solana_sdk::{
         clock::{Epoch, Slot},
         transaction::SanitizedTransaction,
     },
-    std::fmt::Display,
->>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
+    std::{fmt::Display, sync::Arc},
 };
 
 /// A unique identifier for a transaction batch.

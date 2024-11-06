@@ -155,20 +155,14 @@ mod tests {
         super::*,
         crate::banking_stage::scheduler_messages::MaxAge,
         solana_sdk::{
-<<<<<<< HEAD
             compute_budget::ComputeBudgetInstruction,
             hash::Hash,
             message::Message,
             packet::Packet,
             signature::Keypair,
             signer::Signer,
-            slot_history::Slot,
             system_instruction,
             transaction::{SanitizedTransaction, Transaction},
-=======
-            compute_budget::ComputeBudgetInstruction, hash::Hash, message::Message, packet::Packet,
-            signature::Keypair, signer::Signer, system_instruction, transaction::Transaction,
->>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
         },
     };
 

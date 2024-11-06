@@ -448,8 +448,7 @@ impl Consumer {
         // This means that the transaction may cross and epoch boundary (not allowed),
         //  or account lookup tables may have been closed.
         let pre_results = txs.iter().zip(max_ages).map(|(tx, max_age)| {
-<<<<<<< HEAD
-            if bank.slot() > max_age.epoch_invalidation_slot {
+            if bank.epoch() != max_age.sanitized_epoch {
                 // Epoch has rolled over. Need to fully re-verify the transaction.
                 // Pre-compiles are verified here.
                 // Attempt re-sanitization after epoch-cross.
@@ -474,15 +473,6 @@ impl Consumer {
                         tx.message().message_address_table_lookups().iter(),
                     )?;
                 }
-=======
-            // If the transaction was sanitized before this bank's epoch,
-            // additional checks are necessary.
-            if bank.epoch() != max_age.sanitized_epoch {
-                // Reserved key set may have changed, so we must verify that
-                // no writable keys are reserved.
-                bank.check_reserved_keys(tx)?;
-            }
->>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
 
                 // Verify pre-compiles.
                 tx.verify_precompiles(&bank.feature_set)?;
