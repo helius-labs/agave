@@ -1,20 +1,14 @@
 use crate::blockstore::Blockstore;
-use bincode;
-use crossbeam_channel::{bounded, unbounded};
-use log::*;
-use solana_measure::measure::Measure;
 use solana_sdk::clock::Slot;
-use solana_storage_proto::convert::generated;
 use solana_transaction_status::VersionedConfirmedBlockWithEntries;
 use std::{
     fs::File,
     io::BufWriter,
     result::Result,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 #[derive(Clone)]
