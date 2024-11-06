@@ -1,51 +1,25 @@
 use crate::output::output_slot_wrapper;
-use solana_ledger::parquet_upload::upload_confirmed_blocks;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use {
-    crate::{
-        args::{load_genesis_arg, snapshot_args},
-        ledger_path::canonicalize_ledger_path,
-        load_and_process_ledger_or_exit, open_genesis_config_by,
-        output::*,
-        parse_process_options, LoadAndProcessLedgerOutput,
-    },
+    crate::ledger_path::canonicalize_ledger_path,
     clap::{
-        value_t, value_t_or_exit, values_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand,
+        value_t, value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand,
     },
-    crossbeam_channel::unbounded,
-    futures::stream::FuturesUnordered,
-    log::{debug, error, info, warn},
-    serde_json::json,
-    solana_clap_utils::{
-        input_parsers::pubkey_of,
-        input_validators::{is_parsable, is_slot, is_valid_pubkey},
-    },
-    solana_cli_output::{
-        display::println_transaction, CliBlock, CliTransaction, CliTransactionConfirmation,
-        OutputFormat,
-    },
-    solana_entry::entry::{create_ticks, Entry},
+    log::info,
+    solana_clap_utils::input_validators::is_slot,
+    solana_cli_output::OutputFormat,
     solana_ledger::{
         blockstore::Blockstore,
         blockstore_options::AccessType,
         parquet_upload::ConfirmedBlockUploadConfig,
-        shred::{ProcessShredsStats, ReedSolomonCache, Shredder},
     },
-    solana_sdk::{
-        clock::Slot, hash::Hash, pubkey::Pubkey, shred_version::compute_shred_version,
-        signature::Signature, signer::keypair::keypair_from_seed,
-    },
-    solana_storage_bigtable::CredentialType,
-    solana_transaction_status::{ConfirmedBlock, UiTransactionEncoding, VersionedConfirmedBlock},
+    solana_sdk::clock::Slot,
     std::{
-        cmp::min,
-        collections::HashSet,
         path::Path,
         process::exit,
         result::Result,
         str::FromStr,
-        sync::{atomic::AtomicBool, Arc, Mutex},
+        sync::Arc,
     },
 };
 async fn upload(
@@ -62,7 +36,7 @@ async fn upload(
     };
     let blockstore = Arc::new(blockstore);
 
-    let mut starting_slot = match starting_slot {
+    let starting_slot = match starting_slot {
         Some(slot) => slot,
         // It is possible that the slot returned below could get purged by
         // LedgerCleanupService before upload_confirmed_blocks() receives the

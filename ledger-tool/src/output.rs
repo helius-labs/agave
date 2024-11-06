@@ -40,47 +40,18 @@ use {
         io::{stdout, Write},
         rc::Rc,
         sync::Arc,
-        time::{Duration, Instant},
+        time::Instant,
     },
 };
 
 use arrow::array::Array;
-use arrow::array::AsArray;
-use arrow::array::BinaryArray;
 use arrow::array::Datum;
-use arrow::array::Int16Array;
-use arrow::array::StringBuilder;
-use arrow::array::TimestampMillisecondArray;
-use arrow::array::UInt16Array;
-use arrow::compute::filter_record_batch;
-use arrow::compute::take;
-use arrow::datatypes::DataType;
-use arrow::datatypes::Field;
-use arrow::datatypes::Schema;
-use arrow::datatypes::TimeUnit;
-use arrow::{
-    array::{ArrayRef, BooleanArray, StringArray, UInt64Array},
-    record_batch::RecordBatch,
-};
-use chrono::Utc;
-use datafusion::dataframe::DataFrameWriteOptions;
-use datafusion::datasource::MemTable;
-use datafusion::logical_expr::{create_udf, Volatility};
 use datafusion::prelude::*;
-use downcast::Any;
-use futures::executor::block_on;
 use log::{error, info, warn};
-use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
-use serde_json::Value;
-use solana_sdk::reserved_account_keys::ReservedAccountKeys;
 use solana_transaction_status::TransactionStatusMeta;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufWriter;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
