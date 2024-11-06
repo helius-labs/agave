@@ -209,9 +209,8 @@ mod tests {
     use {
         super::*,
         solana_sdk::{
-            clock::Slot, compute_budget::ComputeBudgetInstruction, hash::Hash, message::Message,
-            packet::Packet, signature::Keypair, signer::Signer, system_instruction,
-            transaction::Transaction,
+            compute_budget::ComputeBudgetInstruction, hash::Hash, message::Message, packet::Packet,
+            signature::Keypair, signer::Signer, system_instruction, transaction::Transaction,
         },
     };
 
@@ -232,11 +231,16 @@ mod tests {
             ImmutableDeserializedPacket::new(Packet::from_data(None, tx.clone()).unwrap()).unwrap(),
         );
         let transaction_ttl = SanitizedTransactionTTL {
+<<<<<<< HEAD
             transaction: SanitizedTransaction::from_transaction_for_tests(tx),
             max_age: MaxAge {
                 epoch_invalidation_slot: Slot::MAX,
                 alt_invalidation_slot: Slot::MAX,
             },
+=======
+            transaction: RuntimeTransaction::from_transaction_for_tests(tx),
+            max_age: MaxAge::MAX,
+>>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
         };
         const TEST_TRANSACTION_COST: u64 = 5000;
         TransactionState::new(
@@ -327,13 +331,7 @@ mod tests {
             transaction_state,
             TransactionState::Unprocessed { .. }
         ));
-        assert_eq!(
-            transaction_ttl.max_age,
-            MaxAge {
-                epoch_invalidation_slot: Slot::MAX,
-                alt_invalidation_slot: Slot::MAX,
-            }
-        );
+        assert_eq!(transaction_ttl.max_age, MaxAge::MAX);
 
         let _ = transaction_state.transition_to_pending();
         assert!(matches!(
@@ -351,13 +349,7 @@ mod tests {
             transaction_state,
             TransactionState::Unprocessed { .. }
         ));
-        assert_eq!(
-            transaction_ttl.max_age,
-            MaxAge {
-                epoch_invalidation_slot: Slot::MAX,
-                alt_invalidation_slot: Slot::MAX,
-            }
-        );
+        assert_eq!(transaction_ttl.max_age, MaxAge::MAX);
 
         // ensure transaction_ttl is not lost through state transitions
         let transaction_ttl = transaction_state.transition_to_pending();
@@ -372,12 +364,6 @@ mod tests {
             transaction_state,
             TransactionState::Unprocessed { .. }
         ));
-        assert_eq!(
-            transaction_ttl.max_age,
-            MaxAge {
-                epoch_invalidation_slot: Slot::MAX,
-                alt_invalidation_slot: Slot::MAX,
-            }
-        );
+        assert_eq!(transaction_ttl.max_age, MaxAge::MAX);
     }
 }

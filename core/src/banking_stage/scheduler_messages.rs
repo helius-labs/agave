@@ -1,7 +1,16 @@
 use {
+<<<<<<< HEAD
     super::immutable_deserialized_packet::ImmutableDeserializedPacket,
     solana_sdk::{clock::Slot, transaction::SanitizedTransaction},
     std::{fmt::Display, sync::Arc},
+=======
+    solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
+    solana_sdk::{
+        clock::{Epoch, Slot},
+        transaction::SanitizedTransaction,
+    },
+    std::fmt::Display,
+>>>>>>> 5a6f518c60 (Store epoch in MaxAge (#3485))
 };
 
 /// A unique identifier for a transaction batch.
@@ -38,8 +47,15 @@ impl Display for TransactionId {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MaxAge {
-    pub epoch_invalidation_slot: Slot,
+    pub sanitized_epoch: Epoch,
     pub alt_invalidation_slot: Slot,
+}
+
+impl MaxAge {
+    pub const MAX: Self = Self {
+        sanitized_epoch: Epoch::MAX,
+        alt_invalidation_slot: Slot::MAX,
+    };
 }
 
 /// Message: [Scheduler -> Worker]
