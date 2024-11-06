@@ -724,7 +724,7 @@ fn process_block_contents(
         BlockContents::VersionedConfirmedBlock(block) => (
             slot,
             block.blockhash.to_string(),
-            block.block_time.map(|t| t as i64).unwrap_or_default(),
+            block.block_time.unwrap_or_default(),
             block.block_height.unwrap_or_default(),
             block.parent_slot,
             serde_json::to_string(&block.transactions).unwrap_or_default(),
@@ -1206,7 +1206,7 @@ pub fn write_blocks_to_csv(
     })?;
 
     let output_file = format!("{}/blocks_{}_to_{}.csv", output_dir, start_slot, end_slot);
-    let file = File::create(output_file).map_err(|e| LedgerToolError::Io(e))?;
+    let file = File::create(output_file).map_err(LedgerToolError::Io)?;
     let writer = csv::Writer::from_writer(BufWriter::with_capacity(64 * 1024 * 1024, file));
     let writer = Arc::new(Mutex::new(writer));
 
@@ -1214,7 +1214,7 @@ pub fn write_blocks_to_csv(
     writer
         .lock()
         .map_err(|e| LedgerToolError::Generic(format!("Lock error: {}", e)))?
-        .write_record(&[
+        .write_record([
             "slot",
             "block_status",
             "blockhash",
