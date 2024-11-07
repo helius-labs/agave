@@ -1243,6 +1243,26 @@ pub fn write_blocks_to_csv(
         let file = File::create(&output_file)
             .map_err(|e| LedgerToolError::Generic(format!("Failed to create file: {}", e)))?;
         let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(8 * 1024 * 1024, file));
+
+        // Write CSV header
+        writer
+            .write_record([
+                "slot",
+                "block_status",
+                "blockhash",
+                "parent_slot",
+                "transactions",
+                "rewards",
+                "num_partitions",
+                "block_time",
+                "block_height",
+                "shred_count",
+                "is_full",
+                "parent_exists",
+                "previous_blockhash",
+            ])
+            .map_err(|e| LedgerToolError::Generic(format!("CSV write error: {}", e)))?;
+
         let mut total_records = 0;
 
         loop {
