@@ -546,13 +546,14 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
     }
 }
 
-pub fn output_slot_wrapper(blockstore: &Blockstore, slot: Slot, output_dir: PathBuf) -> Result<()> {
-    write_blocks_to_csv(
-        blockstore,
-        blockstore.lowest_slot(),
-        blockstore.highest_slot().unwrap().unwrap(),
-        output_dir,
-    );
+pub fn output_slot_wrapper(
+    blockstore: Arc<Blockstore>,
+    slot: Slot,
+    output_dir: PathBuf,
+) -> Result<()> {
+    let lowest_slot = blockstore.lowest_slot();
+    let end_slot = blockstore.highest_slot().unwrap().unwrap();
+    write_blocks_to_csv(blockstore, lowest_slot, end_slot, output_dir);
     Ok(())
 }
 
@@ -1187,98 +1188,96 @@ pub fn output_account(
 }
 
 pub fn write_blocks_to_csv(
-    blockstore: &Blockstore,
+    blockstore: Arc<Blockstore>,
     start_slot: Slot,
     end_slot: Slot,
     output_dir: PathBuf,
 ) -> Result<()> {
-    info!("Processing slots {} to {}", start_slot, end_slot);
+    info!("Starting export for slots {} to {}", start_slot, end_slot);
+    let output_file = output_dir.join(format!("blocks_{}_to_{}.csv", start_slot, end_slot));
+    let (tx, rx) = crossbeam_channel::unbounded();
 
-    // Create output directory and file
-    let output_dir = output_dir.to_str().ok_or_else(|| {
-        error!("Invalid output directory path: {:?}", output_dir);
-        LedgerToolError::Generic("Invalid output directory path".to_string())
-    })?;
+    // Spawn reader threads
+    let num_readers = 64;
+    let slots_per_reader = (end_slot - start_slot + 1) / num_readers as u64;
 
-    std::fs::create_dir_all(output_dir).map_err(|e| {
-        error!("Failed to create directory {}: {}", output_dir, e);
-        LedgerToolError::Io(e)
-    })?;
+    let reader_handles: Vec<_> = (0..num_readers)
+        .map(|i| {
+            let tx = tx.clone();
+            let blockstore = blockstore.clone();
+            let reader_start = start_slot + (i as u64 * slots_per_reader);
+            let reader_end = if i == num_readers - 1 {
+                end_slot
+            } else {
+                reader_start + slots_per_reader - 1
+            };
 
-    let output_file = format!("{}/blocks_{}_to_{}.csv", output_dir, start_slot, end_slot);
-    let file = File::create(output_file).map_err(LedgerToolError::Io)?;
-    let writer = csv::Writer::from_writer(BufWriter::with_capacity(64 * 1024 * 1024, file));
-    let writer = Arc::new(Mutex::new(writer));
-
-    // Write CSV header
-    writer
-        .lock()
-        .map_err(|e| LedgerToolError::Generic(format!("Lock error: {}", e)))?
-        .write_record([
-            "slot",
-            "block_status",
-            "blockhash",
-            "parent_slot",
-            "transactions",
-            "rewards",
-            "num_partitions",
-            "block_time",
-            "block_height",
-            "shred_count",
-            "is_full",
-            "parent_exists",
-            "previous_blockhash",
-        ])
-        .map_err(|e| LedgerToolError::Generic(format!("CSV write error: {}", e)))?;
-
-    // Process in smaller chunks
-    let slot_range = 50_000;
-    let mut current_start = start_slot;
-
-    while current_start <= end_slot {
-        let chunk_end = std::cmp::min(current_start + slot_range, end_slot);
-        info!("Processing slot chunk {} to {}", current_start, chunk_end);
-
-        let slot_chunks: Vec<_> = (current_start..=chunk_end).collect();
-        let chunk_size = 100;
-
-        slot_chunks
-            .par_chunks(chunk_size)
-            .try_for_each(|slots| -> Result<()> {
-                let mut local_buffer: Vec<Vec<String>> = Vec::with_capacity(chunk_size * 2);
-
-                for &slot in slots {
-                    if let Err(e) = process_slot(blockstore, slot, &mut local_buffer) {
-                        error!("Failed to process slot {}: {}", slot, e);
-                        return Err(e);
+            std::thread::spawn(move || -> Result<()> {
+                for slot in reader_start..=reader_end {
+                    let mut buffer = Vec::new();
+                    match process_slot(&blockstore, slot, &mut buffer) {
+                        Ok(_) => {
+                            if !buffer.is_empty() {
+                                if let Err(e) = tx.send(buffer) {
+                                    error!("Thread {} failed to send slot {}: {}", i, slot, e);
+                                    return Err(LedgerToolError::Generic(format!(
+                                        "Channel send error: {}",
+                                        e
+                                    )));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Thread {} error processing slot {}: {}", i, slot, e);
+                            continue;
+                        }
                     }
                 }
+                Ok(())
+            })
+        })
+        .collect();
 
-                if !local_buffer.is_empty() {
-                    let mut writer = writer.lock().map_err(|e| {
-                        error!("Failed to acquire lock: {}", e);
-                        LedgerToolError::Generic(format!("Lock error: {}", e))
-                    })?;
+    // Writer thread handles serialization
+    let writer_handle = std::thread::spawn(move || -> Result<()> {
+        let file = File::create(&output_file)
+            .map_err(|e| LedgerToolError::Generic(format!("Failed to create file: {}", e)))?;
+        let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(8 * 1024 * 1024, file));
+        let mut total_records = 0;
 
-                    for record in local_buffer {
+        loop {
+            match rx.recv() {
+                Ok(records) => {
+                    for record in records {
                         writer.write_record(&record).map_err(|e| {
-                            error!("Failed to write record: {}", e);
                             LedgerToolError::Generic(format!("CSV write error: {}", e))
                         })?;
+                        total_records += 1;
                     }
 
-                    writer.flush().map_err(|e| {
-                        error!("Failed to flush writer: {}", e);
-                        LedgerToolError::Io(e)
-                    })?;
+                    if total_records % 100 == 0 {
+                        writer.flush().map_err(|e| {
+                            LedgerToolError::Generic(format!("CSV flush error: {}", e))
+                        })?;
+                    }
                 }
+                Err(_) => {
+                    writer.flush().map_err(|e| {
+                        LedgerToolError::Generic(format!("Final flush error: {}", e))
+                    })?;
+                    return Ok(());
+                }
+            }
+        }
+    });
 
-                Ok(())
-            })?;
-
-        current_start = chunk_end + 1;
-        drop(slot_chunks);
+    // Then wait for readers
+    for handle in reader_handles {
+        handle.join().unwrap()?;
     }
+
+    // Wait for writer first
+    let writer_result = writer_handle.join().unwrap()?;
 
     Ok(())
 }
@@ -1311,10 +1310,7 @@ fn process_slot(
                 Ok(())
             }
         }
-        Ok(None) => {
-            warn!("No metadata found for slot {}", slot);
-            Ok(())
-        }
+        Ok(None) => Ok(()),
         Err(e) => {
             error!("Error fetching metadata for slot {}: {}", slot, e);
             Err(LedgerToolError::Blockstore(e))

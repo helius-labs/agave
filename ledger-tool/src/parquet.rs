@@ -2,25 +2,16 @@ use crate::output::output_slot_wrapper;
 use std::path::PathBuf;
 use {
     crate::ledger_path::canonicalize_ledger_path,
-    clap::{
-        value_t, value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand,
-    },
+    clap::{value_t, value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand},
     log::info,
     solana_clap_utils::input_validators::is_slot,
     solana_cli_output::OutputFormat,
     solana_ledger::{
-        blockstore::Blockstore,
-        blockstore_options::AccessType,
+        blockstore::Blockstore, blockstore_options::AccessType,
         parquet_upload::ConfirmedBlockUploadConfig,
     },
     solana_sdk::clock::Slot,
-    std::{
-        path::Path,
-        process::exit,
-        result::Result,
-        str::FromStr,
-        sync::Arc,
-    },
+    std::{path::Path, process::exit, result::Result, str::FromStr, sync::Arc},
 };
 async fn upload(
     blockstore: Blockstore,
@@ -47,7 +38,7 @@ async fn upload(
 
     let ending_slot = ending_slot.unwrap_or_else(|| blockstore.max_root());
 
-    output_slot_wrapper(&blockstore, starting_slot, output_dir)?;
+    output_slot_wrapper(blockstore, starting_slot, output_dir)?;
 
     info!("No more blocks to upload.");
     Ok(())
