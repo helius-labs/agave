@@ -1,3 +1,7 @@
+use crate::duckdb_handler::local_data_handler::LocalStore;
+use crate::duckdb_handler::local_data_writer::LocalWriter;
+use crate::duckdb_handler::local_data_writer::MessageType;
+use crate::duckdb_handler::local_data_writer::{Block, TransactionInfo, WriteContext};
 use duckdb::params;
 use log::error;
 use log::info;
@@ -9,6 +13,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::SystemTime;
 use {
     crate::{
         error::{LedgerToolError, Result},
@@ -561,7 +566,7 @@ pub async fn output_slot_wrapper(
     let lowest_slot = blockstore.lowest_slot();
     let end_slot = blockstore.highest_slot().unwrap().unwrap();
     //write_blocks_to_parquet(blockstore, lowest_slot, end_slot, output_dir);
-    write_blocks_to_duckdb(blockstore, lowest_slot, end_slot, output_dir)?;
+    write_blocks_to_duckdb(blockstore, lowest_slot, end_slot, output_dir).await?;
     Ok(())
 }
 
@@ -1195,266 +1200,7 @@ pub fn output_account(
     }
 }
 
-pub fn write_blocks_to_parquet(
-    blockstore: Arc<Blockstore>,
-    start_slot: Slot,
-    end_slot: Slot,
-    output_dir: PathBuf,
-) -> Result<()> {
-    info!("Starting export for slots {} to {}", start_slot, end_slot);
-    let output_file = output_dir.join(format!("blocks_{}_to_{}.parquet", start_slot, end_slot));
-    let (tx, rx) = crossbeam_channel::bounded(64 * 4); // 256 slots, 4 batches per reader
-
-    // Spawn reader threads
-    let num_readers = 64;
-    let slots_per_reader = (end_slot - start_slot + 1) / num_readers as u64;
-
-    let reader_handles: Vec<_> = (0..num_readers)
-        .map(|i| {
-            let tx = tx.clone();
-            let blockstore = blockstore.clone();
-            let reader_start = start_slot + (i as u64 * slots_per_reader);
-            let reader_end = if i == num_readers - 1 {
-                end_slot
-            } else {
-                reader_start + slots_per_reader - 1
-            };
-
-            std::thread::spawn(move || -> Result<()> {
-                for slot in reader_start..=reader_end {
-                    let mut buffer = Vec::new();
-                    match process_slot(&blockstore, slot, &mut buffer) {
-                        Ok(_) => {
-                            if !buffer.is_empty() {
-                                if let Err(e) = tx.send(buffer) {
-                                    error!("Thread {} failed to send slot {}: {}", i, slot, e);
-                                    return Err(LedgerToolError::Generic(format!(
-                                        "Channel send error: {}",
-                                        e
-                                    )));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("Thread {} error processing slot {}: {}", i, slot, e);
-                            continue;
-                        }
-                    }
-                }
-                Ok(())
-            })
-        })
-        .collect();
-
-    // Writer thread handles serialization
-    let writer_handle = std::thread::spawn(move || -> Result<()> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("slot", DataType::UInt64, false),
-            Field::new("block_status", DataType::Utf8, false),
-            Field::new("blockhash", DataType::Utf8, false),
-            Field::new("parent_slot", DataType::UInt64, false),
-            Field::new("transactions", DataType::LargeUtf8, false),
-            Field::new("rewards", DataType::LargeUtf8, false),
-            Field::new("num_partitions", DataType::Utf8, true),
-            Field::new("block_time", DataType::Utf8, true),
-            Field::new("block_height", DataType::Utf8, true),
-            Field::new("shred_count", DataType::Utf8, false),
-            Field::new("is_full", DataType::Boolean, false),
-            Field::new("parent_exists", DataType::Boolean, false),
-            Field::new("previous_blockhash", DataType::Utf8, false),
-        ]));
-
-        let file = File::create(&output_file).map_err(|e| {
-            error!("Failed to create output file: {}", e);
-            LedgerToolError::Generic(format!("File creation error: {}", e))
-        })?;
-
-        let props = WriterProperties::builder()
-            .set_compression(Compression::ZSTD(ZstdLevel::try_new(1).unwrap())) // ZSTD level 3
-            .set_write_batch_size(1024 * 1024) // 1MB batch size
-            .build();
-
-        let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).map_err(|e| {
-            error!("Failed to create Arrow writer: {}", e);
-            LedgerToolError::Generic(format!("Arrow writer creation error: {}", e))
-        })?;
-
-        let mut batch_size = 100; // Increased batch size
-        let mut slots = Vec::with_capacity(batch_size);
-        let mut statuses = Vec::with_capacity(batch_size);
-        let mut blockhashes = Vec::with_capacity(batch_size);
-        let mut parent_slots = Vec::with_capacity(batch_size);
-        let mut transactions = Vec::with_capacity(batch_size);
-        let mut rewards = Vec::with_capacity(batch_size);
-        let mut num_partitions = Vec::with_capacity(batch_size);
-        let mut block_times = Vec::with_capacity(batch_size);
-        let mut block_heights = Vec::with_capacity(batch_size);
-        let mut shred_counts = Vec::with_capacity(batch_size);
-        let mut is_fulls = Vec::with_capacity(batch_size);
-        let mut parent_exists = Vec::with_capacity(batch_size);
-        let mut previous_blockhashes = Vec::with_capacity(batch_size);
-
-        let mut total_records = 0;
-        let start_time = Instant::now();
-        let mut last_progress = Instant::now();
-
-        let write_batch = |writer: &mut ArrowWriter<File>,
-                           slots: Vec<u64>,
-                           statuses: Vec<String>,
-                           blockhashes: Vec<String>,
-                           parent_slots: Vec<u64>,
-                           transactions: Vec<String>,
-                           rewards: Vec<String>,
-                           num_partitions: Vec<String>,
-                           block_times: Vec<String>,
-                           block_heights: Vec<String>,
-                           shred_counts: Vec<String>,
-                           is_fulls: Vec<bool>,
-                           parent_exists: Vec<bool>,
-                           previous_blockhashes: Vec<String>|
-         -> Result<()> {
-            let batch = RecordBatch::try_new(
-                schema.clone(),
-                vec![
-                    Arc::new(UInt64Array::from(slots)),
-                    Arc::new(StringArray::from(statuses)),
-                    Arc::new(StringArray::from(blockhashes)),
-                    Arc::new(UInt64Array::from(parent_slots)),
-                    Arc::new(LargeStringArray::from(transactions)),
-                    Arc::new(LargeStringArray::from(rewards)),
-                    Arc::new(StringArray::from(num_partitions)),
-                    Arc::new(StringArray::from(block_times)),
-                    Arc::new(StringArray::from(block_heights)),
-                    Arc::new(StringArray::from(shred_counts)),
-                    Arc::new(BooleanArray::from(is_fulls)),
-                    Arc::new(BooleanArray::from(parent_exists)),
-                    Arc::new(StringArray::from(previous_blockhashes)),
-                ],
-            )
-            .map_err(|e| {
-                error!("Failed to create record batch: {}", e);
-                LedgerToolError::Generic(format!("Record batch creation error: {}", e))
-            })?;
-
-            writer.write(&batch).map_err(|e| {
-                error!("Failed to write batch: {}", e);
-                LedgerToolError::Generic(format!("Batch write error: {}", e))
-            })?;
-
-            // Flush every batch
-            writer.flush().map_err(|e| {
-                error!("Failed to flush writer: {}", e);
-                LedgerToolError::Generic(format!("Flush error: {}", e))
-            })?;
-
-            Ok(())
-        };
-
-        loop {
-            match rx.recv() {
-                Ok(records) => {
-                    for record in records {
-                        slots.push(record[0].parse::<u64>().unwrap_or(0));
-                        statuses.push(record[1].to_string());
-                        blockhashes.push(record[2].to_string());
-                        parent_slots.push(record[3].parse::<u64>().unwrap_or(0));
-                        transactions.push(record[4].to_string());
-                        rewards.push(record[5].to_string());
-                        num_partitions.push(record[6].to_string());
-                        block_times.push(record[7].to_string());
-                        block_heights.push(record[8].to_string());
-                        shred_counts.push(record[9].to_string());
-                        is_fulls.push(record[10].parse::<bool>().unwrap_or(false));
-                        parent_exists.push(record[11].parse::<bool>().unwrap_or(false));
-                        previous_blockhashes.push(record[12].to_string());
-
-                        total_records += 1;
-
-                        // Print progress every 5 seconds
-                        if last_progress.elapsed().as_secs() >= 5 {
-                            let elapsed = start_time.elapsed();
-                            let rate = total_records as f64 / elapsed.as_secs_f64();
-                            info!(
-                                "Processed {} records ({:.2} records/sec)",
-                                total_records, rate
-                            );
-                            last_progress = Instant::now();
-                        }
-
-                        if slots.len() >= batch_size {
-                            write_batch(
-                                &mut writer,
-                                std::mem::take(&mut slots),
-                                std::mem::take(&mut statuses),
-                                std::mem::take(&mut blockhashes),
-                                std::mem::take(&mut parent_slots),
-                                std::mem::take(&mut transactions),
-                                std::mem::take(&mut rewards),
-                                std::mem::take(&mut num_partitions),
-                                std::mem::take(&mut block_times),
-                                std::mem::take(&mut block_heights),
-                                std::mem::take(&mut shred_counts),
-                                std::mem::take(&mut is_fulls),
-                                std::mem::take(&mut parent_exists),
-                                std::mem::take(&mut previous_blockhashes),
-                            )?;
-                        }
-                    }
-                }
-                Err(_) => {
-                    // Write any remaining records
-                    if !slots.is_empty() {
-                        write_batch(
-                            &mut writer,
-                            slots,
-                            statuses,
-                            blockhashes,
-                            parent_slots,
-                            transactions,
-                            rewards,
-                            num_partitions,
-                            block_times,
-                            block_heights,
-                            shred_counts,
-                            is_fulls,
-                            parent_exists,
-                            previous_blockhashes,
-                        )?;
-                    }
-
-                    // Close the writer
-                    writer.close().map_err(|e| {
-                        error!("Failed to close writer: {}", e);
-                        LedgerToolError::Generic(format!("Writer close error: {}", e))
-                    })?;
-
-                    let elapsed = start_time.elapsed();
-                    let rate = total_records as f64 / elapsed.as_secs_f64();
-                    info!(
-                        "Completed processing {} records in {:.2} seconds ({:.2} records/sec)",
-                        total_records,
-                        elapsed.as_secs_f64(),
-                        rate
-                    );
-                    break;
-                }
-            }
-        }
-        Ok(())
-    });
-
-    // Then wait for readers
-    for handle in reader_handles {
-        handle.join().unwrap()?;
-    }
-
-    // Wait for writer
-    writer_handle.join().unwrap()?;
-
-    Ok(())
-}
-
-pub fn write_blocks_to_duckdb(
+pub async fn write_blocks_to_duckdb(
     blockstore: Arc<Blockstore>,
     start_slot: Slot,
     end_slot: Slot,
@@ -1466,39 +1212,13 @@ pub fn write_blocks_to_duckdb(
     );
     let output_file = output_dir.join(format!("blocks_{}_to_{}.db", start_slot, end_slot));
 
-    let config = duckdb::Config::default();
-    let conn = duckdb::Connection::open_in_memory()
-        .map_err(|e| LedgerToolError::Generic(format!("DuckDB connection error: {}", e)))?;
+    // Initialize LocalStore
+    let local_store =
+        crate::duckdb_handler::local_data_handler::LocalStore::new(&Some("temp".to_string()))
+            .unwrap();
+    local_store.init().unwrap();
 
-    // Performance settings
-    conn.execute_batch(
-        "
-        PRAGMA memory_limit='64GB';
-        PRAGMA temp_directory='temp';
-        PRAGMA synchronous='OFF';
-        PRAGMA force_compression='UNCOMPRESSED';
-        PRAGMA enable_progress_bar=false;
-        PRAGMA enable_object_cache=false;
-        
-        DROP TABLE IF EXISTS blocks;
-        
-        CREATE TABLE blocks (
-            slot BIGINT,
-            block_status VARCHAR,
-            blockhash VARCHAR,
-            parent_slot BIGINT,
-            transactions TEXT,
-            rewards TEXT,
-            num_partitions VARCHAR,
-            block_time VARCHAR,
-            block_height VARCHAR,
-            shred_count VARCHAR,
-            is_full BOOLEAN,
-            parent_exists BOOLEAN,
-            previous_blockhash VARCHAR
-        ) WITH (storage_mode='UNCOMPRESSED');",
-    )
-    .map_err(|e| LedgerToolError::Generic(format!("Failed to initialize database: {}", e)))?;
+    let mut writer = local_store.get_writer().unwrap();
 
     let (tx, rx) = crossbeam_channel::bounded(64 * 2);
 
@@ -1517,9 +1237,8 @@ pub fn write_blocks_to_duckdb(
                 reader_start + slots_per_reader - 1
             };
 
-            std::thread::spawn(move || -> Result<()> {
+            tokio::spawn(async move {
                 for slot in reader_start..=reader_end {
-                    // Just get the block and send it through
                     if let Some(block_contents) = get_block(
                         &blockstore,
                         slot,
@@ -1529,7 +1248,7 @@ pub fn write_blocks_to_duckdb(
                         &mut HashMap::new(),
                     ) {
                         if let Err(e) = tx.send((slot, block_contents)) {
-                            error!("Thread {} failed to send slot {}: {}", i, slot, e);
+                            error!("Task {} failed to send slot {}: {}", i, slot, e);
                             return Err(LedgerToolError::Generic(format!(
                                 "Channel send error: {}",
                                 e
@@ -1537,114 +1256,97 @@ pub fn write_blocks_to_duckdb(
                         }
                     }
                 }
-                Ok(())
+                Ok::<(), LedgerToolError>(())
             })
         })
         .collect();
 
+    // Drop the original sender
+    drop(tx);
+
     let mut total_records = 0;
     let start_time = Instant::now();
     let mut last_progress = Instant::now();
-    let mut batch = Vec::with_capacity(100);
-
-    // Create appender
-    let mut appender = conn
-        .appender("blocks")
-        .map_err(|e| LedgerToolError::Generic(format!("Failed to create appender: {}", e)))?;
 
     while let Ok((slot, block_contents)) = rx.recv() {
         match block_contents {
             BlockContents::VersionedConfirmedBlock(block) => {
-                process_confirmed_block(slot, block, &mut appender)?;
+                process_confirmed_block(slot, block, &mut writer)
+                    .await
+                    .unwrap();
             }
             BlockContents::BlockWithoutMetadata(block) => {
-                process_unconfirmed_block(slot, block, &mut appender)?;
+                //process_unconfirmed_block(slot, block, &mut appender)?;
             }
         };
     }
 
-    // Flush and finish the appender
-    appender
-        .flush()
-        .map_err(|e| LedgerToolError::Generic(format!("Failed to flush appender: {}", e)))?;
-
-    let total_time = start_time.elapsed();
-    info!(
-        "Completed processing {} records in {:.2} seconds ({:.2} records/sec)",
-        total_records,
-        total_time.as_secs_f64(),
-        total_records as f64 / total_time.as_secs_f64()
-    );
+    writer
+        .copy_data_to_file(start_slot, end_slot, "temp")
+        .await
+        .unwrap();
 
     Ok(())
 }
 
-fn process_slot(
-    blockstore: &Blockstore,
-    slot: Slot,
-    local_buffer: &mut Vec<Vec<String>>,
-) -> Result<()> {
-    match blockstore.meta(slot) {
-        Ok(Some(meta)) => {
-            if let Some(block_contents) = get_block(
-                blockstore,
-                slot,
-                true,
-                &OutputFormat::DisplayVerbose,
-                1000,
-                &mut HashMap::new(),
-            ) {
-                match block_contents {
-                    BlockContents::VersionedConfirmedBlock(block) => {
-                        process_confirmed_block(slot, block, meta, local_buffer)
-                    }
-                    BlockContents::BlockWithoutMetadata(block) => {
-                        process_unconfirmed_block(slot, block, meta, local_buffer)
-                    }
-                }
-            } else {
-                process_partial_block(slot, meta, local_buffer);
-                Ok(())
-            }
-        }
-        Ok(None) => Ok(()),
-        Err(e) => {
-            error!("Error fetching metadata for slot {}: {}", slot, e);
-            Err(LedgerToolError::Blockstore(e))
-        }
-    }
-}
-
-fn process_confirmed_block(
+async fn process_confirmed_block(
     slot: Slot,
     block: VersionedConfirmedBlock,
-    meta: solana_ledger::blockstore_meta::SlotMeta,
-    local_buffer: &mut Vec<Vec<String>>,
+    writer: &mut impl LocalWriter,
 ) -> Result<()> {
-    local_buffer.push(vec![
-        slot.to_string(),
-        "confirmed".to_string(),
-        block.blockhash.to_string(),
-        block.parent_slot.to_string(),
-        simd_json::to_string(&block.transactions).map_err(|e| {
-            error!("Failed to serialize transactions for slot {}: {}", slot, e);
-            LedgerToolError::SerdeJson(e)
-        })?,
-        simd_json::to_string(&block.rewards).map_err(|e| {
-            error!("Failed to serialize rewards for slot {}: {}", slot, e);
-            LedgerToolError::SerdeJson(e)
-        })?,
-        block
-            .num_partitions
-            .map_or("".to_string(), |n| n.to_string()),
-        block.block_time.map_or("".to_string(), |t| t.to_string()),
-        block.block_height.map_or("".to_string(), |h| h.to_string()),
-        meta.consumed.to_string(),
-        meta.is_full().to_string(),
-        meta.parent_slot
-            .map_or("false".to_string(), |_| "true".to_string()),
-        block.previous_blockhash.to_string(),
-    ]);
+    let context = WriteContext {
+        block_slot: slot,
+        timestamp: SystemTime::now(),
+    };
+
+    // Write block
+    let block_to_write = Block {
+        block_slot: slot,
+        blockhash: block.blockhash.clone(),
+        block_time: block
+            .block_time
+            .map(|t| std::time::Duration::from_secs(t as u64)),
+        block_height: block.block_height.unwrap_or(0),
+        parent_slot: block.parent_slot,
+        rewards: Some(serde_json::to_value(block.rewards).unwrap_or_default()),
+        commitment_level: solana_sdk::commitment_config::CommitmentLevel::Finalized,
+    };
+
+    // Process transactions
+    let transactions: Vec<TransactionInfo> = block
+        .transactions
+        .iter()
+        .enumerate()
+        .map(|(index, tx)| {
+            TransactionInfo {
+                block_slot: slot,
+                signature: tx.transaction.signatures[0].to_string(),
+                is_vote: false, // TODO: Add vote transaction detection
+                index: index as u64,
+                message_type: MessageType::Versioned,
+                message: serde_json::to_value(&tx.transaction).unwrap_or_default(),
+                account_keys: tx
+                    .transaction
+                    .message
+                    .static_account_keys()
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect(),
+            }
+        })
+        .collect();
+
+    // Write both block and transactions
+    writer
+        .write_block(&context, &block_to_write)
+        .await
+        .map_err(|e| LedgerToolError::Generic(format!("Failed to write block: {}", e)))?;
+
+    writer
+        .write_transaction(&context, &transactions)
+        .await
+        .map_err(|e| LedgerToolError::Generic(format!("Failed to write transactions: {}", e)))?;
+
     Ok(())
 }
 
@@ -1698,69 +1400,3 @@ fn process_partial_block(
             .map_or("false".to_string(), |_| "true".to_string()),
     ]);
 }
-
-// async fn write_transaction(
-//     &mut self,
-//     context: &WriteContext,
-//     transaction_infos: &Vec<TransactionInfo>,
-// ) -> anyhow::Result<()> {
-//     let timestamp = context.timestamp.duration_since(std::time::UNIX_EPOCH)?;
-
-//     let p = self.db_pool.get()?;
-//     let mut tran_appender = p
-//         .appender_to_db("transaction_info", "hstore")
-//         .with_context(|| "Cannot construct appender for transaction_info / hstore")?;
-//     let mut acct_appender = p
-//         .appender_to_db("account_to_transaction", "hstore")
-//         .with_context(|| "Cannot construct appender for account_to_transaction / hstore")?;
-
-//     for transaction_info in transaction_infos {
-//         tran_appender.append_row(params![
-//             &transaction_info.block_slot,
-//             &transaction_info.signature,
-//             &transaction_info.is_vote,
-//             &transaction_info.index,
-//             &(transaction_info.message_type as i16),
-//             &transaction_info.message.to_string(),
-//             &timestamp,
-//         ])?;
-
-//         for account_key in &transaction_info.account_keys {
-//             acct_appender.append_row(params![
-//                 &account_key,
-//                 &transaction_info.signature,
-//                 &transaction_info.block_slot,
-//                 &timestamp
-//             ])?
-//         }
-//     }
-
-//     acct_appender.flush()?;
-//     tran_appender.flush()?;
-//     Ok(())
-// }
-
-// async fn write_block(&mut self, context: &WriteContext, block: &Block) -> anyhow::Result<()> {
-//     let rewards = block.rewards.as_ref();
-//     let rewards = &(rewards.map(|r| r.to_string()).unwrap_or("".to_string()));
-//     let timestamp = context.timestamp.duration_since(std::time::UNIX_EPOCH)?;
-//     self.db_pool.get()?.execute("insert into hstore.block (slot, blockhash, blocktime, blockheight, parentslot, rewards, commitment, timestamp, update_timestamp) \
-//         values ($1::bigint, $2::text, $3::timestamp, $4::bigint, $5::bigint, $6::json, $7::smallint, $8::timestamp, $9::timestamp)",
-//                                     params![
-//                                         &block.block_slot,
-//                                         &block.blockhash,
-//                                         &block.block_time,
-//                                         &block.block_height,
-//                                         &block.parent_slot,
-//                                         rewards,
-//                                         &(block.commitment_level as i16),
-//                                         &timestamp,
-//                                         &timestamp,
-//                                    ])?;
-//     Ok(())
-// }
-
-// async fn persist() {
-//     let _ = writer.write_transaction(&context, &transactions).await?;
-//     let _ = writer.write_block(&context, &block).await?;
-// }

@@ -157,6 +157,7 @@ dependencies = [
 name = "agave-ledger-tool"
 version = "2.1.0"
 dependencies = [
+ "anyhow",
  "arrow",
  "assert_cmd",
  "base64 0.22.1",
@@ -176,6 +177,7 @@ dependencies = [
  "log",
  "num_cpus",
  "parquet",
+ "r2d2",
  "rayon",
  "regex",
  "serde",
@@ -215,6 +217,7 @@ dependencies = [
  "thiserror",
  "tikv-jemallocator",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -438,9 +441,9 @@ checksum = "3a30da5c5f2d5e72842e00bcb57657162cdabef0931f40e2deb9b4140440cecd"
 
 [[package]]
 name = "anyhow"
-version = "1.0.91"
+version = "1.0.93"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c042108f3ed77fd83760a5fd79b53be043192bb3b9dba91d8c574c0ada7850c8"
+checksum = "4c95c10ba0b00a02636238b814946408b1322d5ac4760326e6fb8ec956d85775"
 
 [[package]]
 name = "aquamarine"
@@ -2361,6 +2364,7 @@ dependencies = [
  "libduckdb-sys",
  "memchr",
  "num-integer",
+ "r2d2",
  "rust_decimal",
  "smallvec",
  "strum 0.25.0",
@@ -5177,6 +5181,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "r2d2"
+version = "0.8.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51de85fb3fb6524929c8a2eb85e6b6d363de4e8c48f9e2c2eac4944abc181c93"
+dependencies = [
+ "log",
+ "parking_lot 0.12.3",
+ "scheduled-thread-pool",
+]
+
+[[package]]
 name = "radium"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5844,6 +5859,15 @@ checksum = "8f05ba609c234e60bee0d547fe94a4c7e9da733d1c962cf6e59efa4cd9c8bc75"
 dependencies = [
  "lazy_static",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "scheduled-thread-pool"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
+dependencies = [
+ "parking_lot 0.12.3",
 ]
 
 [[package]]

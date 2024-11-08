@@ -109,6 +109,7 @@ mod ledger_utils;
 mod output;
 mod program;
 mod parquet;
+mod duckdb_handler;
 
 fn parse_encoding_format(matches: &ArgMatches<'_>) -> UiAccountEncoding {
     match matches.value_of("encoding") {
