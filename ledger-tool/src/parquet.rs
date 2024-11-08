@@ -38,7 +38,7 @@ async fn upload(
 
     let ending_slot = ending_slot.unwrap_or_else(|| blockstore.max_root());
 
-    output_slot_wrapper(blockstore, starting_slot, output_dir)?;
+    output_slot_wrapper(blockstore, ending_slot, output_dir).await?;
 
     info!("No more blocks to upload.");
     Ok(())
