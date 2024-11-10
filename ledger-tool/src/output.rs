@@ -14,6 +14,7 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::SystemTime;
+use tracing::warn;
 use {
     crate::{
         error::{LedgerToolError, Result},
@@ -42,6 +43,7 @@ use {
         shred::{Shred, ShredType},
     },
     solana_runtime::bank::{Bank, TotalAccountsStats},
+    solana_sdk::commitment_config::CommitmentLevel,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         clock::{Slot, UnixTimestamp},
@@ -1218,12 +1220,20 @@ pub async fn write_blocks_to_duckdb(
             .unwrap();
     local_store.init().unwrap();
 
-    let mut writer = local_store.get_writer().unwrap();
+    let (block_tx, block_rx) = crossbeam_channel::bounded(64 * 2);
+    let (tx_tx, tx_rx) = crossbeam_channel::bounded(64 * 2);
+
+    let mut writer = local_store.get_writer(block_rx, tx_rx).unwrap();
 
     let (tx, rx) = crossbeam_channel::bounded(64 * 2);
 
+    const MIN_READERS: usize = 1; // Minimum number of reader threads
+    const MAX_READERS: usize = 64; // Maximum number of reader threads
+    const RESERVE_CPUS: usize = 4; // CPUs to reserve for system/other tasks
+
     // Spawn reader threads
-    let num_readers = 64;
+    let available_cpus = num_cpus::get().saturating_sub(RESERVE_CPUS);
+    let num_readers = available_cpus.clamp(MIN_READERS, MAX_READERS);
     let slots_per_reader = (end_slot - start_slot + 1) / num_readers as u64;
 
     let reader_handles: Vec<_> = (0..num_readers)
@@ -1248,7 +1258,7 @@ pub async fn write_blocks_to_duckdb(
                         &mut HashMap::new(),
                     ) {
                         if let Err(e) = tx.send((slot, block_contents)) {
-                            error!("Task {} failed to send slot {}: {}", i, slot, e);
+                            //error!("Task {} failed to send slot {}: {}", i, slot, e);
                             return Err(LedgerToolError::Generic(format!(
                                 "Channel send error: {}",
                                 e
@@ -1266,25 +1276,52 @@ pub async fn write_blocks_to_duckdb(
 
     let mut total_records = 0;
     let start_time = Instant::now();
-    let mut last_progress = Instant::now();
+    let mut last_update = Instant::now();
+    let mut last_count = 0;
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(500)); // Limit concurrent tasks
 
     while let Ok((slot, block_contents)) = rx.recv() {
         match block_contents {
             BlockContents::VersionedConfirmedBlock(block) => {
-                process_confirmed_block(slot, block, &mut writer)
-                    .await
-                    .unwrap();
+                let block_tx = block_tx.clone();
+                let tx_tx = tx_tx.clone();
+                let permit = semaphore.clone().acquire_owned().await.unwrap();
+
+                tokio::spawn(async move {
+                    let _permit = permit; // Hold semaphore until task completes
+                    if let Err(e) = process_confirmed_block(slot, block, &block_tx, &tx_tx).await {
+                        warn!("Error processing block {}: {}", slot, e);
+                    }
+                });
             }
             BlockContents::BlockWithoutMetadata(block) => {
                 //process_unconfirmed_block(slot, block, &mut appender)?;
             }
         };
+        total_records += 1;
+
+        if total_records % 100 == 0 {
+            let now = Instant::now();
+            let duration = now.duration_since(last_update);
+            let records_since_last = total_records - last_count;
+            let rate = records_since_last as f64 / duration.as_secs_f64();
+            let overall_rate = total_records as f64 / start_time.elapsed().as_secs_f64();
+
+            info!(
+                "Processed {} records. Current rate: {:.2} blocks/sec, Overall rate: {:.2} blocks/sec",
+                total_records, rate, overall_rate
+            );
+
+            last_update = now;
+            last_count = total_records;
+        }
     }
 
-    writer
-        .copy_data_to_file(start_slot, end_slot, "temp")
-        .await
-        .unwrap();
+    info!("copying data to file");
+    // writer
+    //     .copy_data_to_file(start_slot, end_slot, "temp")
+    //     .await
+    //     .unwrap();
 
     Ok(())
 }
@@ -1292,60 +1329,57 @@ pub async fn write_blocks_to_duckdb(
 async fn process_confirmed_block(
     slot: Slot,
     block: VersionedConfirmedBlock,
-    writer: &mut impl LocalWriter,
+    block_tx: &crossbeam_channel::Sender<Block>,
+    tx_tx: &crossbeam_channel::Sender<TransactionInfo>,
 ) -> Result<()> {
-    let context = WriteContext {
-        block_slot: slot,
-        timestamp: SystemTime::now(),
-    };
+    let now = SystemTime::now();
 
-    // Write block
+    // Create block
     let block_to_write = Block {
         block_slot: slot,
         blockhash: block.blockhash.clone(),
-        block_time: block
-            .block_time
-            .map(|t| std::time::Duration::from_secs(t as u64)),
+        block_time: Some(
+            block
+                .block_time
+                .map(|t| std::time::Duration::from_secs(t as u64))
+                .unwrap_or_else(|| {
+                    now.duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or(std::time::Duration::from_secs(0))
+                }),
+        ),
         block_height: block.block_height.unwrap_or(0),
         parent_slot: block.parent_slot,
-        rewards: Some(serde_json::to_value(block.rewards).unwrap_or_default()),
+        rewards: Some(simd_json::to_string(&block.rewards).unwrap_or_default()),
         commitment_level: solana_sdk::commitment_config::CommitmentLevel::Finalized,
     };
 
-    // Process transactions
-    let transactions: Vec<TransactionInfo> = block
-        .transactions
-        .iter()
-        .enumerate()
-        .map(|(index, tx)| {
-            TransactionInfo {
-                block_slot: slot,
-                signature: tx.transaction.signatures[0].to_string(),
-                is_vote: false, // TODO: Add vote transaction detection
-                index: index as u64,
-                message_type: MessageType::Versioned,
-                message: serde_json::to_value(&tx.transaction).unwrap_or_default(),
-                account_keys: tx
-                    .transaction
-                    .message
-                    .static_account_keys()
-                    .iter()
-                    .map(|key| key.to_string())
-                    .collect(),
-            }
-        })
-        .collect();
+    // Send block through channel
+    block_tx
+        .send(block_to_write)
+        .map_err(|e| LedgerToolError::Generic(format!("Failed to send block: {}", e)))?;
 
-    // Write both block and transactions
-    writer
-        .write_block(&context, &block_to_write)
-        .await
-        .map_err(|e| LedgerToolError::Generic(format!("Failed to write block: {}", e)))?;
+    // Process and send transactions
+    for (index, tx) in block.transactions.iter().enumerate() {
+        let transaction = TransactionInfo {
+            block_slot: slot,
+            signature: tx.transaction.signatures[0].to_string(),
+            is_vote: false, // TODO: Add vote transaction detection
+            index: index as u64,
+            message_type: MessageType::Versioned,
+            message: simd_json::to_string(&tx.transaction).unwrap_or_default(),
+            account_keys: tx
+                .transaction
+                .message
+                .static_account_keys()
+                .iter()
+                .map(|key| key.to_string())
+                .collect(),
+        };
 
-    writer
-        .write_transaction(&context, &transactions)
-        .await
-        .map_err(|e| LedgerToolError::Generic(format!("Failed to write transactions: {}", e)))?;
+        tx_tx
+            .send(transaction)
+            .map_err(|e| LedgerToolError::Generic(format!("Failed to send transaction: {}", e)))?;
+    }
 
     Ok(())
 }
@@ -1377,7 +1411,6 @@ fn process_unconfirmed_block(
     ]);
     Ok(())
 }
-
 fn process_partial_block(
     slot: Slot,
     meta: solana_ledger::blockstore_meta::SlotMeta,

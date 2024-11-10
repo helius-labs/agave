@@ -1,12 +1,14 @@
-use super::local_data_writer::{Block, LocalWriterImpl, TransactionInfo};
+use super::local_data_writer::Block;
+use super::local_data_writer::LocalWriterImpl;
+use super::local_data_writer::TransactionInfo;
 use anyhow::Context;
 use anyhow::Result;
+use crossbeam_channel::Receiver;
 use duckdb::{params, DuckdbConnectionManager, OptionalExt};
 use r2d2::Pool;
 use solana_sdk::commitment_config::CommitmentLevel;
 use std::time::Duration;
 use tracing::info;
-
 #[derive(Clone)]
 pub struct LocalStore {
     pub db_pool: Pool<DuckdbConnectionManager>,
@@ -22,6 +24,10 @@ impl LocalStore {
         self.db_pool.get()?.execute_batch(r"
         create schema if not exists hstore;
 
+        DROP TABLE IF EXISTS hstore.block;
+        DROP TABLE IF EXISTS hstore.transaction_info;
+        DROP TABLE IF EXISTS hstore.account_to_transaction;
+
         CREATE TABLE if not exists hstore.block(
             slot             ubigint           not null,
             blockHash        text              not null,
@@ -32,7 +38,6 @@ impl LocalStore {
             commitment       usmallint         not null, -- 1: Processed, 2: confirmed, 3: finalized
             timestamp        timestamp         not null,
             update_timestamp timestamp         not null, -- commitment changes later, keeping track
-            CONSTRAINT block_pk PRIMARY KEY (slot)
          );
 
          CREATE TABLE if not exists hstore.transaction_info
@@ -44,7 +49,6 @@ impl LocalStore {
             message_type     usmallint   not null, -- 0: legacy, 1: versioned message
             message          json        not null,
             timestamp        timestamp   not null,
-            CONSTRAINT transaction_info_pk PRIMARY KEY (signature)
         );
         CREATE INDEX if not exists idx_transaction_info_slot on hstore.transaction_info (slot);
 
@@ -61,8 +65,12 @@ impl LocalStore {
         Ok(self)
     }
 
-    pub fn get_writer(&self) -> anyhow::Result<LocalWriterImpl> {
-        LocalWriterImpl::new(self.db_pool.clone())
+    pub fn get_writer(
+        &self,
+        block_rx: Receiver<Block>,
+        tx_rx: Receiver<TransactionInfo>,
+    ) -> anyhow::Result<LocalWriterImpl> {
+        LocalWriterImpl::new(self.db_pool.clone(), block_rx, tx_rx)
     }
 
     pub fn get_oldest_and_newest_slot(&self) -> anyhow::Result<(u64, u64)> {

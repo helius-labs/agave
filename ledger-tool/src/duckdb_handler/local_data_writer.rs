@@ -1,18 +1,18 @@
 use anyhow::{anyhow, Context};
+use crossbeam_channel::Receiver;
 use duckdb::types::{FromSql, Type, ValueRef};
 use duckdb::{params, DuckdbConnectionManager};
 use r2d2::Pool;
 use serde_json::Value;
-use std::time::{Duration, SystemTime};
 use solana_sdk::commitment_config::CommitmentLevel;
-
+use std::time::{Duration, SystemTime};
 pub struct Block {
     pub block_slot: u64,
     pub blockhash: String,
     pub block_time: Option<Duration>,
     pub block_height: u64,
     pub parent_slot: u64,
-    pub rewards: Option<serde_json::Value>,
+    pub rewards: Option<String>,
     pub commitment_level: CommitmentLevel,
 }
 
@@ -49,7 +49,7 @@ pub struct TransactionInfo {
     pub is_vote: bool,
     pub index: u64,
     pub message_type: MessageType,
-    pub message: serde_json::Value,
+    pub message: String,
     pub account_keys: Vec<String>,
 }
 
@@ -59,7 +59,7 @@ pub struct HistoricalTransactionInfo {
     pub block_time: SystemTime,
     pub block_height: u64,
     pub parent_slot: u64,
-    pub rewards: Option<Value>,
+    pub rewards: Option<String>,
     pub commitment: CommitmentLevel,
     pub timestamp: SystemTime,
     pub update_timestamp: SystemTime,
@@ -107,8 +107,38 @@ pub struct LocalWriterImpl {
 }
 
 impl LocalWriterImpl {
-    pub fn new(db_pool: Pool<DuckdbConnectionManager>) -> anyhow::Result<Self> {
-        let writer = LocalWriterImpl { db_pool };
+    pub fn new(
+        db_pool: Pool<DuckdbConnectionManager>,
+        mut block_rx: Receiver<Block>,
+        mut tx_rx: Receiver<TransactionInfo>,
+    ) -> Result<Self, anyhow::Error> {
+        let writer = LocalWriterImpl {
+            db_pool: db_pool.clone(),
+        };
+        let mut some_number = 0_u128;
+        // Spawn block processing task
+        let block_pool = db_pool.clone();
+        tokio::spawn(async move {
+            while let Ok(block) = block_rx.recv() {
+                // TODO: Implement block processing
+                some_number += block.block_slot as u128;
+                if some_number > u128::MAX {
+                    tracing::info!("big");
+                }
+            }
+        });
+
+        let mut some_number = 0_u128;
+        // Spawn transaction processing task
+        tokio::spawn(async move {
+            while let Ok(tx) = tx_rx.recv() {
+                // TODO: Implement transaction processing
+                some_number += tx.block_slot as u128;
+                if some_number > u128::MAX {
+                    tracing::info!("big");
+                }
+            }
+        });
 
         Ok(writer)
     }
