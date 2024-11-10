@@ -23,6 +23,8 @@ impl LocalStore {
     pub fn init(&self) -> anyhow::Result<&Self> {
         self.db_pool.get()?.execute_batch(r"
         create schema if not exists hstore;
+        PRAGMA temp_directory='/tmp/duckdb_spillover';
+        PRAGMA memory_limit='192GB';
 
         DROP TABLE IF EXISTS hstore.block;
         DROP TABLE IF EXISTS hstore.transaction_info;
@@ -50,8 +52,9 @@ impl LocalStore {
             message          json        not null,
             timestamp        timestamp   not null,
         );
+        /*
         CREATE INDEX if not exists idx_transaction_info_slot on hstore.transaction_info (slot);
-
+        */
         CREATE TABLE if not exists hstore.account_to_transaction
         (
             address   text        not null,
@@ -59,8 +62,10 @@ impl LocalStore {
             slot      ubigint     not null,
             timestamp timestamp   not null,
         );
+        /*
         CREATE INDEX if not exists idx_account_to_transaction_addr on hstore.account_to_transaction (address);
         CREATE INDEX if not exists idx_account_to_transaction_addr on hstore.account_to_transaction (signature);
+        */
         ")?;
         Ok(self)
     }
@@ -163,10 +168,12 @@ impl LocalStore {
 }
 
 fn get_connection(file: &Option<String>) -> anyhow::Result<Pool<DuckdbConnectionManager>> {
-    let manager = file
-        .as_ref()
-        .map(DuckdbConnectionManager::file)
-        .unwrap_or(DuckdbConnectionManager::memory())?;
+    // let manager = file
+    //     .as_ref()
+    //     .map(DuckdbConnectionManager::file)
+    //     .unwrap_or(DuckdbConnectionManager::memory())?;
+
+    let manager = DuckdbConnectionManager::memory()?;
 
     info!("Starting DuckDB connection {:?}", file);
     let pool = Pool::new(manager)?;

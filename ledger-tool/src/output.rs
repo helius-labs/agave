@@ -1220,8 +1220,8 @@ pub async fn write_blocks_to_duckdb(
             .unwrap();
     local_store.init().unwrap();
 
-    let (block_tx, block_rx) = crossbeam_channel::bounded(64 * 2);
-    let (tx_tx, tx_rx) = crossbeam_channel::bounded(64 * 2);
+    let (block_tx, block_rx) = crossbeam_channel::bounded(10000);
+    let (tx_tx, tx_rx) = crossbeam_channel::bounded(2_250_000);
 
     let mut writer = local_store.get_writer(block_rx, tx_rx).unwrap();
 
@@ -1278,7 +1278,7 @@ pub async fn write_blocks_to_duckdb(
     let start_time = Instant::now();
     let mut last_update = Instant::now();
     let mut last_count = 0;
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(500)); // Limit concurrent tasks
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(5)); // Limit concurrent tasks
 
     while let Ok((slot, block_contents)) = rx.recv() {
         match block_contents {
@@ -1315,13 +1315,26 @@ pub async fn write_blocks_to_duckdb(
             last_update = now;
             last_count = total_records;
         }
+
+        // if total_records >= 20000 {
+        //     break;
+        // }
     }
 
-    info!("copying data to file");
-    // writer
-    //     .copy_data_to_file(start_slot, end_slot, "temp")
-    //     .await
-    //     .unwrap();
+    // Drop original senders after processing is complete
+    drop(block_tx);
+    drop(tx_tx);
+
+    info!("Starting copy data to file...");
+
+    writer
+        .copy_data_to_file(
+            start_slot,
+            end_slot,
+            "/root/raid/nvme/csv_output/test.parquet",
+        )
+        .await
+        .unwrap();
 
     Ok(())
 }

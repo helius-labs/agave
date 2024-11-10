@@ -5,7 +5,12 @@ use duckdb::{params, DuckdbConnectionManager};
 use r2d2::Pool;
 use serde_json::Value;
 use solana_sdk::commitment_config::CommitmentLevel;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
+static BLOCK_THREAD_DONE: AtomicBool = AtomicBool::new(false);
+static TX_THREAD_DONE: AtomicBool = AtomicBool::new(false);
+
 pub struct Block {
     pub block_slot: u64,
     pub blockhash: String,
@@ -115,29 +120,132 @@ impl LocalWriterImpl {
         let writer = LocalWriterImpl {
             db_pool: db_pool.clone(),
         };
-        let mut some_number = 0_u128;
+
         // Spawn block processing task
         let block_pool = db_pool.clone();
         tokio::spawn(async move {
+            let conn = block_pool
+                .get()
+                .expect("Failed to get connection for blocks");
+            let mut block_appender = conn
+                .appender_to_db("block", "hstore")
+                .expect("Failed to create block appender");
+            let mut block_count = 0;
+
             while let Ok(block) = block_rx.recv() {
-                // TODO: Implement block processing
-                some_number += block.block_slot as u128;
-                if some_number > u128::MAX {
-                    tracing::info!("big");
+                let rewards = block.rewards.as_ref();
+                let rewards = &(rewards.map(|r| r.to_string()).unwrap_or("".to_string()));
+                let timestamp = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards");
+
+                if let Err(e) = block_appender.append_row(params![
+                    &block.block_slot,
+                    &block.blockhash,
+                    &block.block_time,
+                    &block.block_height,
+                    &block.parent_slot,
+                    rewards,
+                    &(block.commitment_level as i16),
+                    &timestamp,
+                    &timestamp,
+                ]) {
+                    tracing::error!("Failed to append block: {}", e);
+                }
+
+                block_count += 1;
+                if block_count >= 1000 {
+                    if let Err(e) = block_appender.flush() {
+                        tracing::error!("Failed to flush block appender: {}", e);
+                    }
+                    block_count = 0;
                 }
             }
+            BLOCK_THREAD_DONE.store(true, Ordering::Release);
         });
 
-        let mut some_number = 0_u128;
         // Spawn transaction processing task
         tokio::spawn(async move {
+            let conn = db_pool
+                .get()
+                .expect("Failed to get connection for transactions");
+            let mut tx_appender = conn
+                .appender_to_db("transaction_info", "hstore")
+                .expect("Failed to create transaction appender");
+            let mut acct_appender = conn
+                .appender_to_db("account_to_transaction", "hstore")
+                .expect("Failed to create account appender");
+            let mut tx_count = 0;
+            let mut acct_count = 0;
+
+            let capacity = 1_000_000;
+            let mut tx_batch = Vec::with_capacity(capacity);
+
             while let Ok(tx) = tx_rx.recv() {
-                // TODO: Implement transaction processing
-                some_number += tx.block_slot as u128;
-                if some_number > u128::MAX {
-                    tracing::info!("big");
+                let timestamp = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards");
+
+                tx_batch.push((
+                    tx.block_slot,
+                    tx.signature.clone(),
+                    tx.is_vote,
+                    tx.index,
+                    tx.message_type as i16,
+                    tx.message.to_string(),
+                    timestamp,
+                ));
+
+                // for account_key in &tx.account_keys {
+                //     if let Err(e) = acct_appender.append_row(params![
+                //         &account_key,
+                //         &tx.signature,
+                //         &tx.block_slot,
+                //         &timestamp
+                //     ]) {
+                //         tracing::error!("Failed to append account: {}", e);
+                //     }
+                //     acct_count += 1;
+                // }
+
+                if tx_batch.len() >= capacity {
+                    // Bulk append all transactions
+                    for tx_data in tx_batch.iter() {
+                        if let Err(e) = tx_appender.append_row(params![
+                            &tx_data.0, // block_slot
+                            &tx_data.1, // signature
+                            &tx_data.2, // is_vote
+                            &tx_data.3, // index
+                            &tx_data.4, // message_type
+                            &tx_data.5, // message
+                            &tx_data.6, // timestamp
+                        ]) {
+                            tracing::error!("Failed to append transaction: {}", e);
+                        }
+                    }
+
+                    if let Err(e) = tx_appender.flush() {
+                        tracing::error!("Failed to flush transaction appender: {}", e);
+                    }
+
+                    tx_batch.clear();
                 }
+
+                if tx_count >= capacity {
+                    if let Err(e) = tx_appender.flush() {
+                        tracing::error!("Failed to flush transaction appender: {}", e);
+                    }
+                    tx_count = 0;
+                }
+
+                // if acct_count >= 10000 {
+                //     if let Err(e) = acct_appender.flush() {
+                //         tracing::error!("Failed to flush account appender: {}", e);
+                //     }
+                //     acct_count = 0;
+                // }
             }
+            TX_THREAD_DONE.store(true, Ordering::Release);
         });
 
         Ok(writer)
@@ -228,6 +336,14 @@ impl LocalWriter for LocalWriterImpl {
         end_block: u64,
         path: &str,
     ) -> anyhow::Result<usize> {
+        // Wait for processing to complete
+        while !BLOCK_THREAD_DONE.load(Ordering::Acquire) || !TX_THREAD_DONE.load(Ordering::Acquire)
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        let start_time = std::time::Instant::now();
+
         if start_block > end_block {
             return Err(anyhow!("End block {end_block} < start_block {start_block}"));
         }
@@ -243,14 +359,23 @@ impl LocalWriter for LocalWriterImpl {
             where b.slot < $1::bigint and b.slot >= $2::bigint and b.commitment = $3::smallint
             order by b.slot asc, t.index asc)
         TO '{path}'
-        (FORMAT 'parquet', COMPRESSION 'snappy', ROW_GROUP_SIZE 100_000, partition_by (round_slot, sig_hash));"
+        (FORMAT 'parquet', COMPRESSION 'snappy', ROW_GROUP_SIZE 100_000, partition_by (round_slot, sig_hash), OVERWRITE TRUE);"
         );
-        connection
-            .execute(
-                sql.as_str(),
-                params![end_block, start_block, &(CommitmentLevel::Finalized as i16)],
-            )
-            .with_context(|| "No data was written for {start_block} / {end_block}")
+
+        let rows_copied = connection.execute(
+            sql.as_str(),
+            params![end_block, start_block, &(CommitmentLevel::Finalized as i16)],
+        )?;
+
+        let elapsed = start_time.elapsed();
+        tracing::info!(
+            "Copy operation copied {} rows in {:.2}s ({:.2} rows/s)",
+            rows_copied,
+            elapsed.as_secs_f32(),
+            rows_copied as f32 / elapsed.as_secs_f32()
+        );
+
+        Ok(rows_copied)
     }
 
     async fn truncate_data(&mut self, block: u64) -> anyhow::Result<(usize, usize, usize)> {
