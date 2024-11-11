@@ -3,7 +3,6 @@ use {
     crate::{
         args::*,
         bigtable::*,
-        parquet::*,
         blockstore::*,
         ledger_path::*,
         ledger_utils::*,
@@ -11,6 +10,7 @@ use {
             output_account, AccountsOutputConfig, AccountsOutputMode, AccountsOutputStreamer,
             SlotBankHash,
         },
+        parquet::*,
         program::*,
     },
     clap::{
@@ -103,13 +103,13 @@ use {
 mod args;
 mod bigtable;
 mod blockstore;
+mod duckdb_handler;
 mod error;
 mod ledger_path;
 mod ledger_utils;
 mod output;
-mod program;
 mod parquet;
-mod duckdb_handler;
+mod program;
 
 fn parse_encoding_format(matches: &ArgMatches<'_>) -> UiAccountEncoding {
     match matches.value_of("encoding") {

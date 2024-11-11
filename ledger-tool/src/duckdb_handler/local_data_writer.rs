@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Context};
 use crossbeam_channel::{Receiver, Sender};
+use duckdb::types::{FromSql, Type, ValueRef};
 use duckdb::{params, Appender, DuckdbConnectionManager};
 use r2d2::Pool;
+use solana_sdk::commitment_config::CommitmentLevel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
-use duckdb::types::{FromSql, Type, ValueRef};
-use solana_sdk::commitment_config::CommitmentLevel;
 
 static BLOCK_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static TX_THREAD_DONE: AtomicBool = AtomicBool::new(false);
@@ -107,7 +107,7 @@ impl LocalWriterImpl {
         Ok(writer)
     }
 
-    fn spawn_block_processor(pool: Pool<DuckdbConnectionManager>, mut block_rx: Receiver<Block>) {
+    fn spawn_block_processor(pool: Pool<DuckdbConnectionManager>, block_rx: Receiver<Block>) {
         tokio::spawn(async move {
             let conn = pool.get().expect("Failed to get connection for blocks");
             let mut appender = conn
@@ -165,7 +165,7 @@ impl LocalWriterImpl {
 
     fn spawn_transaction_processor(
         pool: Pool<DuckdbConnectionManager>,
-        mut tx_rx: Receiver<TransactionInfo>,
+        tx_rx: Receiver<TransactionInfo>,
         account_tx: Sender<(String, String, u64, f64)>,
     ) {
         tokio::spawn(async move {
@@ -236,7 +236,7 @@ impl LocalWriterImpl {
 
     fn spawn_account_processor(
         pool: Pool<DuckdbConnectionManager>,
-        mut account_rx: Receiver<(String, String, u64, f64)>,
+        account_rx: Receiver<(String, String, u64, f64)>,
     ) {
         tokio::spawn(async move {
             let conn = pool.get().expect("Failed to get connection for accounts");
@@ -407,10 +407,7 @@ impl LocalWriterImpl {
         Ok(rows_copied)
     }
 
-    pub async fn truncate_data(
-        &mut self,
-        block: u64,
-    ) -> anyhow::Result<(usize, usize, usize)> {
+    pub async fn truncate_data(&mut self, block: u64) -> anyhow::Result<(usize, usize, usize)> {
         let blocks_deleted = {
             let con = self.db_pool.get()?;
             con.execute(

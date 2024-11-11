@@ -5,9 +5,7 @@ use std::{
     fs::File,
     io::BufWriter,
     result::Result,
-    sync::{
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 

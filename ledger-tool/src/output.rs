@@ -1,18 +1,10 @@
-use crate::duckdb_handler::local_data_handler::LocalStore;
-use crate::duckdb_handler::local_data_writer::LocalWriterImpl;
 use crate::duckdb_handler::local_data_writer::MessageType;
-use crate::duckdb_handler::local_data_writer::{Block, TransactionInfo, WriteContext};
-use duckdb::params;
+use crate::duckdb_handler::local_data_writer::{Block, TransactionInfo};
 use log::error;
 use log::info;
-use parquet::basic::ZstdLevel;
 use rayon::prelude::*;
-use simd_json;
 use solana_transaction_status::TransactionStatusMeta;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::SystemTime;
 use tracing::warn;
 use {
@@ -20,15 +12,7 @@ use {
         error::{LedgerToolError, Result},
         ledger_utils::get_program_ids,
     },
-    arrow::{
-        array::{ArrayRef, BooleanArray, Int64Array, LargeStringArray, StringArray, UInt64Array},
-        datatypes::{DataType, Field, Schema},
-        record_batch::RecordBatch,
-    },
     chrono::{Local, TimeZone},
-    parquet::{
-        arrow::arrow_writer::ArrowWriter, basic::Compression, file::properties::WriterProperties,
-    },
     serde::ser::{Impossible, SerializeSeq, SerializeStruct, Serializer},
     serde_derive::{Deserialize, Serialize},
     solana_account_decoder::{encode_ui_account, UiAccountData, UiAccountEncoding},
@@ -43,7 +27,6 @@ use {
         shred::{Shred, ShredType},
     },
     solana_runtime::bank::{Bank, TotalAccountsStats},
-    solana_sdk::commitment_config::CommitmentLevel,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         clock::{Slot, UnixTimestamp},
@@ -1350,10 +1333,7 @@ async fn process_confirmed_block(
         block_time: block
             .block_time
             .map(|t| std::time::Duration::from_secs(t as u64))
-            .or_else(|| {
-                now.duration_since(SystemTime::UNIX_EPOCH)
-                    .ok()
-            }),
+            .or_else(|| now.duration_since(SystemTime::UNIX_EPOCH).ok()),
         block_height: block.block_height.unwrap_or(0),
         parent_slot: block.parent_slot,
         rewards: Some(simd_json::to_string(&block.rewards).unwrap_or_default()),
