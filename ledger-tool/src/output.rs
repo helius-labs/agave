@@ -560,15 +560,13 @@ impl TryFrom<BlockContents> for EncodedConfirmedBlock {
     }
 }
 
-pub async fn output_slot_wrapper(
+pub async fn write_parquet(
     blockstore: Arc<Blockstore>,
-    slot: Slot,
+    start_slot: Slot,
+    ending_slot: Slot,
     output_dir: PathBuf,
 ) -> Result<()> {
-    let lowest_slot = blockstore.lowest_slot();
-    let end_slot = blockstore.highest_slot().unwrap().unwrap();
-    //write_blocks_to_parquet(blockstore, lowest_slot, end_slot, output_dir);
-    write_blocks_to_duckdb(blockstore, lowest_slot, end_slot, output_dir).await?;
+    write_blocks_to_duckdb(blockstore, start_slot, ending_slot, output_dir).await?;
     Ok(())
 }
 
@@ -1215,9 +1213,7 @@ pub async fn write_blocks_to_duckdb(
     let output_file = output_dir.join(format!("blocks_{}_to_{}.db", start_slot, end_slot));
 
     // Initialize LocalStore
-    let local_store =
-        crate::duckdb_handler::local_data_handler::LocalStore::new(&Some("temp".to_string()))
-            .unwrap();
+    let local_store = crate::duckdb_handler::local_data_handler::LocalStore::new().unwrap();
     local_store.init().unwrap();
 
     let (block_tx, block_rx) = crossbeam_channel::bounded(10000);
@@ -1316,9 +1312,9 @@ pub async fn write_blocks_to_duckdb(
             last_count = total_records;
         }
 
-        if total_records >= 50000 {
-            break;
-        }
+        // if total_records >= 100_000 {
+        //     break;
+        // }
     }
 
     // Drop original senders after processing is complete

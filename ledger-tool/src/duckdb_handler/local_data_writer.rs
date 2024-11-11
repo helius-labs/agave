@@ -1,15 +1,17 @@
 use anyhow::{anyhow, Context};
-use crossbeam_channel::Receiver;
-use duckdb::types::{FromSql, Type, ValueRef};
-use duckdb::{params, DuckdbConnectionManager};
+use crossbeam_channel::{Receiver, Sender};
+use duckdb::{params, Appender, DuckdbConnectionManager};
 use r2d2::Pool;
-use solana_sdk::commitment_config::CommitmentLevel;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
+
 static BLOCK_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static TX_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static ACCOUNT_THREAD_DONE: AtomicBool = AtomicBool::new(false);
+
+const TX_BATCH_SIZE: usize = 1000;
+const ACCOUNT_BATCH_SIZE: usize = 1000;
+const ACCOUNT_CHANNEL_SIZE: usize = 1_000_000;
 
 pub struct Block {
     pub block_slot: u64,
@@ -114,162 +116,181 @@ pub struct LocalWriterImpl {
 impl LocalWriterImpl {
     pub fn new(
         db_pool: Pool<DuckdbConnectionManager>,
-        mut block_rx: Receiver<Block>,
-        mut tx_rx: Receiver<TransactionInfo>,
+        block_rx: Receiver<Block>,
+        tx_rx: Receiver<TransactionInfo>,
     ) -> Result<Self, anyhow::Error> {
-        const ACCOUNT_CHANNEL_SIZE: usize = 1_000_000;
-        const BLOCK_BATCH_SIZE: usize = 1_000;
-        const TX_BATCH_SIZE: usize = 100_000;
-        const ACCOUNT_BATCH_SIZE: usize = 100_000;
-
         let writer = LocalWriterImpl {
             db_pool: db_pool.clone(),
         };
 
-        // Create internal account channel
-        let (account_tx, account_rx) = crossbeam_channel::bounded(ACCOUNT_CHANNEL_SIZE);
-        let account_tx = account_tx.clone();
+        Self::spawn_block_processor(db_pool.clone(), block_rx);
 
-        // Spawn block processing task
-        let block_pool = db_pool.clone();
+        let (account_tx, account_rx) = crossbeam_channel::bounded(ACCOUNT_CHANNEL_SIZE);
+        Self::spawn_transaction_processor(db_pool.clone(), tx_rx, account_tx);
+        Self::spawn_account_processor(db_pool, account_rx);
+
+        Ok(writer)
+    }
+
+    fn spawn_block_processor(pool: Pool<DuckdbConnectionManager>, mut block_rx: Receiver<Block>) {
         tokio::spawn(async move {
-            let conn = block_pool
-                .get()
-                .expect("Failed to get connection for blocks");
-            let mut block_appender = conn
+            let conn = pool.get().expect("Failed to get connection for blocks");
+            let mut appender = conn
                 .appender_to_db("block", "hstore")
                 .expect("Failed to create block appender");
             let mut block_count = 0;
 
             while let Ok(block) = block_rx.recv() {
-                let rewards = block.rewards.as_ref();
-                let rewards = &(rewards.map(|r| r.to_string()).unwrap_or("".to_string()));
-                let timestamp = SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("Time went backwards");
-
-                if let Err(e) = block_appender.append_row(params![
-                    &block.block_slot,
-                    &block.blockhash,
-                    &block.block_time,
-                    &block.block_height,
-                    &block.parent_slot,
-                    rewards,
-                    &(block.commitment_level as i16),
-                    &timestamp,
-                    &timestamp,
-                ]) {
-                    tracing::error!("Failed to append block: {}", e);
-                }
-
+                Self::write_block_to_appender(&mut appender, &block);
                 block_count += 1;
-                if block_count >= BLOCK_BATCH_SIZE {
-                    if let Err(e) = block_appender.flush() {
+
+                if block_count >= TX_BATCH_SIZE {
+                    if let Err(e) = appender.flush() {
                         tracing::error!("Failed to flush block appender: {}", e);
                     }
                     block_count = 0;
                 }
             }
+
+            if block_count > 0 {
+                if let Err(e) = appender.flush() {
+                    tracing::error!("Failed to flush block appender: {}", e);
+                }
+            }
             BLOCK_THREAD_DONE.store(true, Ordering::Release);
         });
+    }
 
-        let tx_pool = db_pool.clone();
+    fn write_block_to_appender(appender: &mut Appender, block: &Block) {
+        let timestamp = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0));
 
-        // Spawn transaction processing task
+        let rewards = block
+            .rewards
+            .as_ref()
+            .map(|r| r.to_string())
+            .unwrap_or_default();
+
+        if let Err(e) = appender.append_row(params![
+            &block.block_slot,
+            &block.blockhash,
+            &block.block_time,
+            &block.block_height,
+            &block.parent_slot,
+            &rewards,
+            &(block.commitment_level as i16),
+            &timestamp,
+            &timestamp,
+        ]) {
+            tracing::error!("Failed to append block {}: {}", block.block_slot, e);
+        }
+    }
+
+    fn spawn_transaction_processor(
+        pool: Pool<DuckdbConnectionManager>,
+        mut tx_rx: Receiver<TransactionInfo>,
+        account_tx: Sender<(String, String, u64, SystemTime)>,
+    ) {
         tokio::spawn(async move {
-            let conn = tx_pool
+            let conn = pool
                 .get()
                 .expect("Failed to get connection for transactions");
             let mut tx_appender = conn
                 .appender_to_db("transaction_info", "hstore")
                 .expect("Failed to create transaction appender");
-            let mut tx_batch = Vec::with_capacity(TX_BATCH_SIZE);
+            let mut tx_count = 0;
 
             while let Ok(tx) = tx_rx.recv() {
-                let timestamp = SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("Time went backwards");
+                Self::write_transaction(&mut tx_appender, &tx, &account_tx);
+                tx_count += 1;
 
-                tx_batch.push((
-                    tx.block_slot,
-                    tx.signature.clone(),
-                    tx.is_vote,
-                    tx.index,
-                    tx.message_type as i16,
-                    tx.message.to_string(),
-                    timestamp,
-                ));
-
-                // Add this section to send accounts to the new channel
-                for account_key in &tx.account_keys {
-                    if let Err(e) = account_tx.send((
-                        account_key.clone(),
-                        tx.signature.clone(),
-                        tx.block_slot,
-                        timestamp,
-                    )) {
-                        tracing::error!("Failed to send account to processor: {}", e);
-                    }
-                }
-
-                if tx_batch.len() >= TX_BATCH_SIZE {
-                    // Bulk append all transactions
-                    for tx_data in tx_batch.iter() {
-                        if let Err(e) = tx_appender.append_row(params![
-                            &tx_data.0, // block_slot
-                            &tx_data.1, // signature
-                            &tx_data.2, // is_vote
-                            &tx_data.3, // index
-                            &tx_data.4, // message_type
-                            &tx_data.5, // message
-                            &tx_data.6, // timestamp
-                        ]) {
-                            tracing::error!("Failed to append transaction: {}", e);
-                        }
-                    }
-
+                if tx_count >= TX_BATCH_SIZE {
                     if let Err(e) = tx_appender.flush() {
                         tracing::error!("Failed to flush transaction appender: {}", e);
                     }
-
-                    tx_batch.clear();
+                    tx_count = 0;
                 }
             }
-            // Drop the cloned sender when transaction processing is done
+
+            if tx_count > 0 {
+                if let Err(e) = tx_appender.flush() {
+                    tracing::error!("Failed to flush transaction appender: {}", e);
+                }
+            }
+
             drop(account_tx);
             TX_THREAD_DONE.store(true, Ordering::Release);
         });
+    }
 
-        // Add new account processing task
-        let account_pool = db_pool.clone();
+    fn write_transaction(
+        tx_appender: &mut Appender,
+        tx: &TransactionInfo,
+        account_tx: &Sender<(String, String, u64, SystemTime)>,
+    ) {
+        let timestamp = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0));
+
+        if let Err(e) = tx_appender.append_row(params![
+            &tx.block_slot,
+            &tx.signature,
+            &tx.is_vote,
+            &tx.index,
+            &(tx.message_type as i16),
+            &tx.message,
+            &timestamp,
+        ]) {
+            tracing::error!("Failed to append transaction {}: {}", tx.signature, e);
+        }
+
+        for account_key in &tx.account_keys {
+            if let Err(e) = account_tx.send((
+                account_key.clone(),
+                tx.signature.clone(),
+                tx.block_slot,
+                timestamp,
+            )) {
+                tracing::error!("Failed to send account mapping: {}", e);
+            }
+        }
+    }
+
+    fn spawn_account_processor(
+        pool: Pool<DuckdbConnectionManager>,
+        mut account_rx: Receiver<(String, String, u64, SystemTime)>,
+    ) {
         tokio::spawn(async move {
-            let conn = account_pool
-                .get()
-                .expect("Failed to get connection for accounts");
-            let mut acct_appender = conn
+            let conn = pool.get().expect("Failed to get connection for accounts");
+            let mut appender = conn
                 .appender_to_db("account_to_transaction", "hstore")
                 .expect("Failed to create account appender");
-            let mut acct_count = 0;
+            let mut batch_count = 0;
 
-            while let Ok((account_key, signature, slot, timestamp)) = account_rx.recv() {
+            while let Ok((address, signature, slot, timestamp)) = account_rx.recv() {
                 if let Err(e) =
-                    acct_appender.append_row(params![&account_key, &signature, &slot, &timestamp])
+                    appender.append_row(params![&address, &signature, &slot, &timestamp])
                 {
-                    tracing::error!("Failed to append account: {}", e);
+                    tracing::error!("Failed to append account {}: {}", address, e);
                 }
-                acct_count += 1;
+                batch_count += 1;
 
-                if acct_count >= ACCOUNT_BATCH_SIZE {
-                    if let Err(e) = acct_appender.flush() {
+                if batch_count >= ACCOUNT_BATCH_SIZE {
+                    if let Err(e) = appender.flush() {
                         tracing::error!("Failed to flush account appender: {}", e);
                     }
-                    acct_count = 0;
+                    batch_count = 0;
+                }
+            }
+
+            if batch_count > 0 {
+                if let Err(e) = appender.flush() {
+                    tracing::error!("Failed to flush account appender: {}", e);
                 }
             }
             ACCOUNT_THREAD_DONE.store(true, Ordering::Release);
         });
-
-        Ok(writer)
     }
 }
 

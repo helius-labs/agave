@@ -15,15 +15,15 @@ pub struct LocalStore {
 }
 
 impl LocalStore {
-    pub fn new(db_file: &Option<String>) -> anyhow::Result<Self> {
-        let db_pool = get_connection(db_file)?;
+    pub fn new() -> anyhow::Result<Self> {
+        let db_pool = get_connection()?;
         Ok(Self { db_pool })
     }
 
     pub fn init(&self) -> anyhow::Result<&Self> {
         self.db_pool.get()?.execute_batch(r"
         create schema if not exists hstore;
-        PRAGMA temp_directory='/tmp/duckdb_spillover';
+        PRAGMA temp_directory='/root/raid/nvme/csv_output/duckdb_spillover';
         PRAGMA memory_limit='256GB';
 
         DROP TABLE IF EXISTS hstore.block;
@@ -167,15 +167,8 @@ impl LocalStore {
     }
 }
 
-fn get_connection(file: &Option<String>) -> anyhow::Result<Pool<DuckdbConnectionManager>> {
-    // let manager = file
-    //     .as_ref()
-    //     .map(DuckdbConnectionManager::file)
-    //     .unwrap_or(DuckdbConnectionManager::memory())?;
-
-    let manager = DuckdbConnectionManager::memory()?;
-
-    info!("Starting DuckDB connection {:?}", file);
-    let pool = Pool::new(manager)?;
+fn get_connection() -> anyhow::Result<Pool<DuckdbConnectionManager>> {
+    info!("Starting DuckDB connection");
+    let pool = Pool::new(DuckdbConnectionManager::memory()?)?;
     Ok(pool)
 }

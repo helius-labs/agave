@@ -1,4 +1,4 @@
-use crate::output::output_slot_wrapper;
+use crate::output::write_parquet;
 use std::path::PathBuf;
 use {
     crate::ledger_path::canonicalize_ledger_path,
@@ -38,7 +38,7 @@ async fn upload(
 
     let ending_slot = ending_slot.unwrap_or_else(|| blockstore.max_root());
 
-    output_slot_wrapper(blockstore, ending_slot, output_dir).await?;
+    write_parquet(blockstore, starting_slot, ending_slot, output_dir).await?;
 
     info!("No more blocks to upload.");
     Ok(())
