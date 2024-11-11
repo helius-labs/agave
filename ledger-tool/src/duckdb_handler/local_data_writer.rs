@@ -3,13 +3,13 @@ use crossbeam_channel::Receiver;
 use duckdb::types::{FromSql, Type, ValueRef};
 use duckdb::{params, DuckdbConnectionManager};
 use r2d2::Pool;
-use serde_json::Value;
 use solana_sdk::commitment_config::CommitmentLevel;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 static BLOCK_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static TX_THREAD_DONE: AtomicBool = AtomicBool::new(false);
+static ACCOUNT_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 
 pub struct Block {
     pub block_slot: u64,
@@ -117,9 +117,18 @@ impl LocalWriterImpl {
         mut block_rx: Receiver<Block>,
         mut tx_rx: Receiver<TransactionInfo>,
     ) -> Result<Self, anyhow::Error> {
+        const ACCOUNT_CHANNEL_SIZE: usize = 1_000_000;
+        const BLOCK_BATCH_SIZE: usize = 1_000;
+        const TX_BATCH_SIZE: usize = 100_000;
+        const ACCOUNT_BATCH_SIZE: usize = 100_000;
+
         let writer = LocalWriterImpl {
             db_pool: db_pool.clone(),
         };
+
+        // Create internal account channel
+        let (account_tx, account_rx) = crossbeam_channel::bounded(ACCOUNT_CHANNEL_SIZE);
+        let account_tx = account_tx.clone();
 
         // Spawn block processing task
         let block_pool = db_pool.clone();
@@ -154,7 +163,7 @@ impl LocalWriterImpl {
                 }
 
                 block_count += 1;
-                if block_count >= 1000 {
+                if block_count >= BLOCK_BATCH_SIZE {
                     if let Err(e) = block_appender.flush() {
                         tracing::error!("Failed to flush block appender: {}", e);
                     }
@@ -164,22 +173,17 @@ impl LocalWriterImpl {
             BLOCK_THREAD_DONE.store(true, Ordering::Release);
         });
 
+        let tx_pool = db_pool.clone();
+
         // Spawn transaction processing task
         tokio::spawn(async move {
-            let conn = db_pool
+            let conn = tx_pool
                 .get()
                 .expect("Failed to get connection for transactions");
             let mut tx_appender = conn
                 .appender_to_db("transaction_info", "hstore")
                 .expect("Failed to create transaction appender");
-            let mut acct_appender = conn
-                .appender_to_db("account_to_transaction", "hstore")
-                .expect("Failed to create account appender");
-            let mut tx_count = 0;
-            let mut acct_count = 0;
-
-            let capacity = 1_000_000;
-            let mut tx_batch = Vec::with_capacity(capacity);
+            let mut tx_batch = Vec::with_capacity(TX_BATCH_SIZE);
 
             while let Ok(tx) = tx_rx.recv() {
                 let timestamp = SystemTime::now()
@@ -196,19 +200,19 @@ impl LocalWriterImpl {
                     timestamp,
                 ));
 
-                // for account_key in &tx.account_keys {
-                //     if let Err(e) = acct_appender.append_row(params![
-                //         &account_key,
-                //         &tx.signature,
-                //         &tx.block_slot,
-                //         &timestamp
-                //     ]) {
-                //         tracing::error!("Failed to append account: {}", e);
-                //     }
-                //     acct_count += 1;
-                // }
+                // Add this section to send accounts to the new channel
+                for account_key in &tx.account_keys {
+                    if let Err(e) = account_tx.send((
+                        account_key.clone(),
+                        tx.signature.clone(),
+                        tx.block_slot,
+                        timestamp,
+                    )) {
+                        tracing::error!("Failed to send account to processor: {}", e);
+                    }
+                }
 
-                if tx_batch.len() >= capacity {
+                if tx_batch.len() >= TX_BATCH_SIZE {
                     // Bulk append all transactions
                     for tx_data in tx_batch.iter() {
                         if let Err(e) = tx_appender.append_row(params![
@@ -230,22 +234,39 @@ impl LocalWriterImpl {
 
                     tx_batch.clear();
                 }
-
-                if tx_count >= capacity {
-                    if let Err(e) = tx_appender.flush() {
-                        tracing::error!("Failed to flush transaction appender: {}", e);
-                    }
-                    tx_count = 0;
-                }
-
-                // if acct_count >= 10000 {
-                //     if let Err(e) = acct_appender.flush() {
-                //         tracing::error!("Failed to flush account appender: {}", e);
-                //     }
-                //     acct_count = 0;
-                // }
             }
+            // Drop the cloned sender when transaction processing is done
+            drop(account_tx);
             TX_THREAD_DONE.store(true, Ordering::Release);
+        });
+
+        // Add new account processing task
+        let account_pool = db_pool.clone();
+        tokio::spawn(async move {
+            let conn = account_pool
+                .get()
+                .expect("Failed to get connection for accounts");
+            let mut acct_appender = conn
+                .appender_to_db("account_to_transaction", "hstore")
+                .expect("Failed to create account appender");
+            let mut acct_count = 0;
+
+            while let Ok((account_key, signature, slot, timestamp)) = account_rx.recv() {
+                if let Err(e) =
+                    acct_appender.append_row(params![&account_key, &signature, &slot, &timestamp])
+                {
+                    tracing::error!("Failed to append account: {}", e);
+                }
+                acct_count += 1;
+
+                if acct_count >= ACCOUNT_BATCH_SIZE {
+                    if let Err(e) = acct_appender.flush() {
+                        tracing::error!("Failed to flush account appender: {}", e);
+                    }
+                    acct_count = 0;
+                }
+            }
+            ACCOUNT_THREAD_DONE.store(true, Ordering::Release);
         });
 
         Ok(writer)
@@ -337,18 +358,26 @@ impl LocalWriter for LocalWriterImpl {
         path: &str,
     ) -> anyhow::Result<usize> {
         // Wait for processing to complete
-        while !BLOCK_THREAD_DONE.load(Ordering::Acquire) || !TX_THREAD_DONE.load(Ordering::Acquire)
+        while !BLOCK_THREAD_DONE.load(Ordering::Acquire)
+            || !TX_THREAD_DONE.load(Ordering::Acquire)
+            || !ACCOUNT_THREAD_DONE.load(Ordering::Acquire)
         {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-
+        tracing::info!("Processing complete, starting copy...");
         let start_time = std::time::Instant::now();
 
         if start_block > end_block {
             return Err(anyhow!("End block {end_block} < start_block {start_block}"));
         }
         let connection = self.db_pool.get()?;
-
+        // First set the PRAGMAs
+        connection.execute_batch(
+            r"
+        PRAGMA enable_progress_bar=true;
+        PRAGMA progress_bar_time=1000;
+        ",
+        )?;
         let sql = format!(
             r"COPY (
         select b.*, t.signature, t.is_vote, t.message,

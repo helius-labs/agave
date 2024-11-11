@@ -24,7 +24,7 @@ impl LocalStore {
         self.db_pool.get()?.execute_batch(r"
         create schema if not exists hstore;
         PRAGMA temp_directory='/tmp/duckdb_spillover';
-        PRAGMA memory_limit='192GB';
+        PRAGMA memory_limit='256GB';
 
         DROP TABLE IF EXISTS hstore.block;
         DROP TABLE IF EXISTS hstore.transaction_info;

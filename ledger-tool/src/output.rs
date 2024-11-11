@@ -1221,7 +1221,7 @@ pub async fn write_blocks_to_duckdb(
     local_store.init().unwrap();
 
     let (block_tx, block_rx) = crossbeam_channel::bounded(10000);
-    let (tx_tx, tx_rx) = crossbeam_channel::bounded(2_250_000);
+    let (tx_tx, tx_rx) = crossbeam_channel::bounded(2_25_000);
 
     let mut writer = local_store.get_writer(block_rx, tx_rx).unwrap();
 
@@ -1316,9 +1316,9 @@ pub async fn write_blocks_to_duckdb(
             last_count = total_records;
         }
 
-        // if total_records >= 20000 {
-        //     break;
-        // }
+        if total_records >= 50000 {
+            break;
+        }
     }
 
     // Drop original senders after processing is complete
