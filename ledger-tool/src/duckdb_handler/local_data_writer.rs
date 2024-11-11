@@ -4,6 +4,8 @@ use duckdb::{params, Appender, DuckdbConnectionManager};
 use r2d2::Pool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
+use duckdb::types::{FromSql, Type, ValueRef};
+use solana_sdk::commitment_config::CommitmentLevel;
 
 static BLOCK_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static TX_THREAD_DONE: AtomicBool = AtomicBool::new(false);
@@ -13,6 +15,7 @@ const TX_BATCH_SIZE: usize = 1000;
 const ACCOUNT_BATCH_SIZE: usize = 1000;
 const ACCOUNT_CHANNEL_SIZE: usize = 1_000_000;
 
+#[derive(Clone)]
 pub struct Block {
     pub block_slot: u64,
     pub blockhash: String,
@@ -80,34 +83,6 @@ pub struct WriteContext {
     pub timestamp: SystemTime,
 }
 
-pub trait LocalWriter {
-    fn write_transaction(
-        &mut self,
-        context: &WriteContext,
-        transaction_infos: &Vec<TransactionInfo>,
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn write_block(
-        &mut self,
-        context: &WriteContext,
-        block: &Block,
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn update_commitment(
-        &mut self,
-        context: &WriteContext,
-        commitment_level: CommitmentLevel,
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn copy_data_to_file(
-        &mut self,
-        start_block: u64,
-        end_block: u64,
-        path: &str,
-    ) -> impl std::future::Future<Output = anyhow::Result<usize>> + Send;
-    fn truncate_data(
-        &mut self,
-        block: u64,
-    ) -> impl std::future::Future<Output = anyhow::Result<(usize, usize, usize)>> + Send;
-}
-
 #[derive(Clone)]
 pub struct LocalWriterImpl {
     db_pool: Pool<DuckdbConnectionManager>,
@@ -164,7 +139,8 @@ impl LocalWriterImpl {
     fn write_block_to_appender(appender: &mut Appender, block: &Block) {
         let timestamp = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0));
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs_f64();
 
         let rewards = block
             .rewards
@@ -190,7 +166,7 @@ impl LocalWriterImpl {
     fn spawn_transaction_processor(
         pool: Pool<DuckdbConnectionManager>,
         mut tx_rx: Receiver<TransactionInfo>,
-        account_tx: Sender<(String, String, u64, SystemTime)>,
+        account_tx: Sender<(String, String, u64, f64)>,
     ) {
         tokio::spawn(async move {
             let conn = pool
@@ -202,7 +178,7 @@ impl LocalWriterImpl {
             let mut tx_count = 0;
 
             while let Ok(tx) = tx_rx.recv() {
-                Self::write_transaction(&mut tx_appender, &tx, &account_tx);
+                Self::write_transaction_to_appender(&mut tx_appender, &tx, &account_tx);
                 tx_count += 1;
 
                 if tx_count >= TX_BATCH_SIZE {
@@ -224,14 +200,15 @@ impl LocalWriterImpl {
         });
     }
 
-    fn write_transaction(
+    fn write_transaction_to_appender(
         tx_appender: &mut Appender,
         tx: &TransactionInfo,
-        account_tx: &Sender<(String, String, u64, SystemTime)>,
+        account_tx: &Sender<(String, String, u64, f64)>,
     ) {
         let timestamp = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0));
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs_f64();
 
         if let Err(e) = tx_appender.append_row(params![
             &tx.block_slot,
@@ -259,7 +236,7 @@ impl LocalWriterImpl {
 
     fn spawn_account_processor(
         pool: Pool<DuckdbConnectionManager>,
-        mut account_rx: Receiver<(String, String, u64, SystemTime)>,
+        mut account_rx: Receiver<(String, String, u64, f64)>,
     ) {
         tokio::spawn(async move {
             let conn = pool.get().expect("Failed to get connection for accounts");
@@ -292,10 +269,8 @@ impl LocalWriterImpl {
             ACCOUNT_THREAD_DONE.store(true, Ordering::Release);
         });
     }
-}
 
-impl LocalWriter for LocalWriterImpl {
-    async fn write_transaction(
+    pub async fn write_transaction(
         &mut self,
         context: &WriteContext,
         transaction_infos: &Vec<TransactionInfo>,
@@ -336,7 +311,11 @@ impl LocalWriter for LocalWriterImpl {
         Ok(())
     }
 
-    async fn write_block(&mut self, context: &WriteContext, block: &Block) -> anyhow::Result<()> {
+    pub async fn write_block(
+        &mut self,
+        context: &WriteContext,
+        block: &Block,
+    ) -> anyhow::Result<()> {
         let rewards = block.rewards.as_ref();
         let rewards = &(rewards.map(|r| r.to_string()).unwrap_or("".to_string()));
         let timestamp = context.timestamp.duration_since(std::time::UNIX_EPOCH)?;
@@ -356,7 +335,7 @@ impl LocalWriter for LocalWriterImpl {
         Ok(())
     }
 
-    async fn update_commitment(
+    pub async fn update_commitment(
         &mut self,
         context: &WriteContext,
         commitment_level: CommitmentLevel,
@@ -372,7 +351,7 @@ impl LocalWriter for LocalWriterImpl {
         Ok(())
     }
 
-    async fn copy_data_to_file(
+    pub async fn copy_data_to_file(
         &mut self,
         start_block: u64,
         end_block: u64,
@@ -428,7 +407,10 @@ impl LocalWriter for LocalWriterImpl {
         Ok(rows_copied)
     }
 
-    async fn truncate_data(&mut self, block: u64) -> anyhow::Result<(usize, usize, usize)> {
+    pub async fn truncate_data(
+        &mut self,
+        block: u64,
+    ) -> anyhow::Result<(usize, usize, usize)> {
         let blocks_deleted = {
             let con = self.db_pool.get()?;
             con.execute(

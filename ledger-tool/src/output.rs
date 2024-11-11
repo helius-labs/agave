@@ -1,5 +1,5 @@
 use crate::duckdb_handler::local_data_handler::LocalStore;
-use crate::duckdb_handler::local_data_writer::LocalWriter;
+use crate::duckdb_handler::local_data_writer::LocalWriterImpl;
 use crate::duckdb_handler::local_data_writer::MessageType;
 use crate::duckdb_handler::local_data_writer::{Block, TransactionInfo, WriteContext};
 use duckdb::params;
@@ -1347,15 +1347,13 @@ async fn process_confirmed_block(
     let block_to_write = Block {
         block_slot: slot,
         blockhash: block.blockhash.clone(),
-        block_time: Some(
-            block
-                .block_time
-                .map(|t| std::time::Duration::from_secs(t as u64))
-                .unwrap_or_else(|| {
-                    now.duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap_or(std::time::Duration::from_secs(0))
-                }),
-        ),
+        block_time: block
+            .block_time
+            .map(|t| std::time::Duration::from_secs(t as u64))
+            .or_else(|| {
+                now.duration_since(SystemTime::UNIX_EPOCH)
+                    .ok()
+            }),
         block_height: block.block_height.unwrap_or(0),
         parent_slot: block.parent_slot,
         rewards: Some(simd_json::to_string(&block.rewards).unwrap_or_default()),
