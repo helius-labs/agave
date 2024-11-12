@@ -1,5 +1,5 @@
 use super::local_data_writer::Block;
-use super::local_data_writer::LocalWriterImpl;
+use super::local_data_writer::LocalWriter;
 use super::local_data_writer::TransactionInfo;
 use anyhow::Context;
 use anyhow::Result;
@@ -74,8 +74,9 @@ impl LocalStore {
         &self,
         block_rx: Receiver<Block>,
         tx_rx: Receiver<TransactionInfo>,
-    ) -> anyhow::Result<LocalWriterImpl> {
-        LocalWriterImpl::new(self.db_pool.clone(), block_rx, tx_rx)
+    ) -> anyhow::Result<LocalWriter> {
+        LocalWriter::new(self.db_pool.clone(), block_rx, tx_rx)
+            .map_err(|e| anyhow::anyhow!("Writer error: {}", e))
     }
 
     pub fn get_oldest_and_newest_slot(&self) -> anyhow::Result<(u64, u64)> {

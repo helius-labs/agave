@@ -11,10 +11,6 @@ static BLOCK_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static TX_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 static ACCOUNT_THREAD_DONE: AtomicBool = AtomicBool::new(false);
 
-const TX_BATCH_SIZE: usize = 1000;
-const ACCOUNT_BATCH_SIZE: usize = 1000;
-const ACCOUNT_CHANNEL_SIZE: usize = 1_000_000;
-
 #[derive(Clone)]
 pub struct Block {
     pub block_slot: u64,
@@ -84,30 +80,77 @@ pub struct WriteContext {
 }
 
 #[derive(Clone)]
-pub struct LocalWriterImpl {
+pub struct LocalWriter {
     db_pool: Pool<DuckdbConnectionManager>,
+    config: WriterConfig,
 }
 
-impl LocalWriterImpl {
+// Create a custom error type
+#[derive(thiserror::Error, Debug)]
+pub enum WriterError {
+    #[error("Database error: {0}")]
+    Database(#[from] duckdb::Error),
+    #[error("Pool error: {0}")]
+    Pool(#[from] r2d2::Error),
+    #[error("Channel error: {0}")]
+    Channel(String),
+    #[error("Invalid block range: end {end} < start {start}")]
+    InvalidBlockRange { start: u64, end: u64 },
+}
+
+#[derive(Clone)]
+pub struct WriterConfig {
+    pub tx_batch_size: usize,
+    pub account_batch_size: usize,
+    pub account_channel_size: usize,
+    pub vacuum_after_truncate: bool,
+}
+
+impl Default for WriterConfig {
+    fn default() -> Self {
+        Self {
+            tx_batch_size: 1000,
+            account_batch_size: 1000,
+            account_channel_size: 1_000_000,
+            vacuum_after_truncate: true,
+        }
+    }
+}
+
+impl LocalWriter {
     pub fn new(
         db_pool: Pool<DuckdbConnectionManager>,
         block_rx: Receiver<Block>,
         tx_rx: Receiver<TransactionInfo>,
-    ) -> Result<Self, anyhow::Error> {
-        let writer = LocalWriterImpl {
+    ) -> Result<Self, WriterError> {
+        Self::new_with_config(db_pool, block_rx, tx_rx, WriterConfig::default())
+    }
+
+    pub fn new_with_config(
+        db_pool: Pool<DuckdbConnectionManager>,
+        block_rx: Receiver<Block>,
+        tx_rx: Receiver<TransactionInfo>,
+        config: WriterConfig,
+    ) -> Result<Self, WriterError> {
+        let writer = LocalWriter {
             db_pool: db_pool.clone(),
+            config: config.clone(),
         };
 
-        Self::spawn_block_processor(db_pool.clone(), block_rx);
+        Self::spawn_block_processor(db_pool.clone(), block_rx, config.tx_batch_size);
 
-        let (account_tx, account_rx) = crossbeam_channel::bounded(ACCOUNT_CHANNEL_SIZE);
-        Self::spawn_transaction_processor(db_pool.clone(), tx_rx, account_tx);
-        Self::spawn_account_processor(db_pool, account_rx);
+        let (account_tx, account_rx) = crossbeam_channel::bounded(config.account_channel_size);
+        Self::spawn_transaction_processor(db_pool.clone(), tx_rx, account_tx, config.tx_batch_size);
+        Self::spawn_account_processor(db_pool, account_rx, config.account_batch_size);
 
         Ok(writer)
     }
 
-    fn spawn_block_processor(pool: Pool<DuckdbConnectionManager>, block_rx: Receiver<Block>) {
+    fn spawn_block_processor(
+        pool: Pool<DuckdbConnectionManager>,
+        block_rx: Receiver<Block>,
+        batch_size: usize,
+    ) {
         tokio::spawn(async move {
             let conn = pool.get().expect("Failed to get connection for blocks");
             let mut appender = conn
@@ -119,7 +162,7 @@ impl LocalWriterImpl {
                 Self::write_block_to_appender(&mut appender, &block);
                 block_count += 1;
 
-                if block_count >= TX_BATCH_SIZE {
+                if block_count >= batch_size {
                     if let Err(e) = appender.flush() {
                         tracing::error!("Failed to flush block appender: {}", e);
                     }
@@ -167,6 +210,7 @@ impl LocalWriterImpl {
         pool: Pool<DuckdbConnectionManager>,
         tx_rx: Receiver<TransactionInfo>,
         account_tx: Sender<(String, String, u64, f64)>,
+        batch_size: usize,
     ) {
         tokio::spawn(async move {
             let conn = pool
@@ -181,7 +225,7 @@ impl LocalWriterImpl {
                 Self::write_transaction_to_appender(&mut tx_appender, &tx, &account_tx);
                 tx_count += 1;
 
-                if tx_count >= TX_BATCH_SIZE {
+                if tx_count >= batch_size {
                     if let Err(e) = tx_appender.flush() {
                         tracing::error!("Failed to flush transaction appender: {}", e);
                     }
@@ -194,7 +238,6 @@ impl LocalWriterImpl {
                     tracing::error!("Failed to flush transaction appender: {}", e);
                 }
             }
-
             drop(account_tx);
             TX_THREAD_DONE.store(true, Ordering::Release);
         });
@@ -237,6 +280,7 @@ impl LocalWriterImpl {
     fn spawn_account_processor(
         pool: Pool<DuckdbConnectionManager>,
         account_rx: Receiver<(String, String, u64, f64)>,
+        batch_size: usize,
     ) {
         tokio::spawn(async move {
             let conn = pool.get().expect("Failed to get connection for accounts");
@@ -253,7 +297,7 @@ impl LocalWriterImpl {
                 }
                 batch_count += 1;
 
-                if batch_count >= ACCOUNT_BATCH_SIZE {
+                if batch_count >= batch_size {
                     if let Err(e) = appender.flush() {
                         tracing::error!("Failed to flush account appender: {}", e);
                     }
@@ -270,72 +314,7 @@ impl LocalWriterImpl {
         });
     }
 
-    pub async fn write_transaction(
-        &mut self,
-        context: &WriteContext,
-        transaction_infos: &Vec<TransactionInfo>,
-    ) -> anyhow::Result<()> {
-        let timestamp = context.timestamp.duration_since(std::time::UNIX_EPOCH)?;
-
-        let p = self.db_pool.get()?;
-        let mut tran_appender = p
-            .appender_to_db("transaction_info", "hstore")
-            .with_context(|| "Cannot construct appender for transaction_info / hstore")?;
-        let mut acct_appender = p
-            .appender_to_db("account_to_transaction", "hstore")
-            .with_context(|| "Cannot construct appender for account_to_transaction / hstore")?;
-
-        for transaction_info in transaction_infos {
-            tran_appender.append_row(params![
-                &transaction_info.block_slot,
-                &transaction_info.signature,
-                &transaction_info.is_vote,
-                &transaction_info.index,
-                &(transaction_info.message_type as i16),
-                &transaction_info.message.to_string(),
-                &timestamp,
-            ])?;
-
-            for account_key in &transaction_info.account_keys {
-                acct_appender.append_row(params![
-                    &account_key,
-                    &transaction_info.signature,
-                    &transaction_info.block_slot,
-                    &timestamp
-                ])?
-            }
-        }
-
-        acct_appender.flush()?;
-        tran_appender.flush()?;
-        Ok(())
-    }
-
-    pub async fn write_block(
-        &mut self,
-        context: &WriteContext,
-        block: &Block,
-    ) -> anyhow::Result<()> {
-        let rewards = block.rewards.as_ref();
-        let rewards = &(rewards.map(|r| r.to_string()).unwrap_or("".to_string()));
-        let timestamp = context.timestamp.duration_since(std::time::UNIX_EPOCH)?;
-        self.db_pool.get()?.execute("insert into hstore.block (slot, blockhash, blocktime, blockheight, parentslot, rewards, commitment, timestamp, update_timestamp) \
-        values ($1::bigint, $2::text, $3::timestamp, $4::bigint, $5::bigint, $6::json, $7::smallint, $8::timestamp, $9::timestamp)",
-                                    params![
-                                        &block.block_slot,
-                                        &block.blockhash,
-                                        &block.block_time,
-                                        &block.block_height,
-                                        &block.parent_slot,
-                                        rewards,
-                                        &(block.commitment_level as i16),
-                                        &timestamp,
-                                        &timestamp,
-                                   ])?;
-        Ok(())
-    }
-
-    pub async fn update_commitment(
+    pub async fn _update_commitment(
         &mut self,
         context: &WriteContext,
         commitment_level: CommitmentLevel,
@@ -356,7 +335,13 @@ impl LocalWriterImpl {
         start_block: u64,
         end_block: u64,
         path: &str,
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize, WriterError> {
+        if start_block > end_block {
+            return Err(WriterError::InvalidBlockRange {
+                start: start_block,
+                end: end_block,
+            });
+        }
         // Wait for processing to complete
         while !BLOCK_THREAD_DONE.load(Ordering::Acquire)
             || !TX_THREAD_DONE.load(Ordering::Acquire)
@@ -367,9 +352,6 @@ impl LocalWriterImpl {
         tracing::info!("Processing complete, starting copy...");
         let start_time = std::time::Instant::now();
 
-        if start_block > end_block {
-            return Err(anyhow!("End block {end_block} < start_block {start_block}"));
-        }
         let connection = self.db_pool.get()?;
         // First set the PRAGMAs
         connection.execute_batch(
