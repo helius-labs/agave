@@ -139,7 +139,11 @@ impl LocalWriter {
 
         Self::spawn_block_processor(db_pool.clone(), block_rx, config.tx_batch_size);
 
-        let (account_tx, account_rx) = crossbeam_channel::bounded(config.account_channel_size);
+        // Create channel with Duration type
+        let (account_tx, account_rx) = crossbeam_channel::bounded::<(String, String, u64, Duration)>(
+            config.account_channel_size,
+        );
+
         Self::spawn_transaction_processor(db_pool.clone(), tx_rx, account_tx, config.tx_batch_size);
         Self::spawn_account_processor(db_pool, account_rx, config.account_batch_size);
 
@@ -182,8 +186,7 @@ impl LocalWriter {
     fn write_block_to_appender(appender: &mut Appender, block: &Block) {
         let timestamp = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0))
-            .as_secs_f64();
+            .expect("Time went backwards");
 
         let rewards = block
             .rewards
@@ -197,7 +200,7 @@ impl LocalWriter {
             &block.block_time,
             &block.block_height,
             &block.parent_slot,
-            &rewards,
+            rewards,
             &(block.commitment_level as i16),
             &timestamp,
             &timestamp,
@@ -209,7 +212,7 @@ impl LocalWriter {
     fn spawn_transaction_processor(
         pool: Pool<DuckdbConnectionManager>,
         tx_rx: Receiver<TransactionInfo>,
-        account_tx: Sender<(String, String, u64, f64)>,
+        account_tx: Sender<(String, String, u64, Duration)>, // Changed to Duration
         batch_size: usize,
     ) {
         tokio::spawn(async move {
@@ -222,7 +225,34 @@ impl LocalWriter {
             let mut tx_count = 0;
 
             while let Ok(tx) = tx_rx.recv() {
-                Self::write_transaction_to_appender(&mut tx_appender, &tx, &account_tx);
+                let timestamp = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards");
+
+                if let Err(e) = tx_appender.append_row(params![
+                    &tx.block_slot,
+                    &tx.signature,
+                    &tx.is_vote,
+                    &tx.index,
+                    &(tx.message_type as i16),
+                    &tx.message,
+                    &timestamp,
+                ]) {
+                    tracing::error!("Failed to append transaction {}: {}", tx.signature, e);
+                }
+
+                // Send account mappings
+                for account_key in &tx.account_keys {
+                    if let Err(e) = account_tx.send((
+                        account_key.clone(),
+                        tx.signature.clone(),
+                        tx.block_slot,
+                        timestamp,
+                    )) {
+                        tracing::error!("Failed to send account mapping: {}", e);
+                    }
+                }
+
                 tx_count += 1;
 
                 if tx_count >= batch_size {
@@ -279,7 +309,7 @@ impl LocalWriter {
 
     fn spawn_account_processor(
         pool: Pool<DuckdbConnectionManager>,
-        account_rx: Receiver<(String, String, u64, f64)>,
+        account_rx: Receiver<(String, String, u64, Duration)>, // Changed to Duration
         batch_size: usize,
     ) {
         tokio::spawn(async move {
