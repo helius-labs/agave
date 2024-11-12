@@ -1189,26 +1189,33 @@ pub async fn write_blocks_to_duckdb(
     end_slot: Slot,
     output_dir: PathBuf,
 ) -> Result<()> {
+    const BLOCK_CHANNEL_SIZE: usize = 10000;
+    const TX_CHANNEL_SIZE: usize = 2_25_000;
+    const READER_BUFFER_SIZE: usize = 64 * 2;
+    const MIN_READERS: usize = 1; // Minimum number of reader threads
+    const MAX_READERS: usize = 64; // Maximum number of reader threads
+    const RESERVE_CPUS: usize = 4; // CPUs to reserve for system/other tasks
+
     info!(
         "Starting optimized DuckDB export for slots {} to {}",
         start_slot, end_slot
     );
-    let output_file = output_dir.join(format!("blocks_{}_to_{}.db", start_slot, end_slot));
 
     // Initialize LocalStore
-    let local_store = crate::duckdb_handler::local_data_handler::LocalStore::new().unwrap();
-    local_store.init().unwrap();
+    let local_store = crate::duckdb_handler::local_data_handler::LocalStore::new()
+        .map_err(|e| LedgerToolError::Generic(e.to_string()))?;
+    local_store
+        .init()
+        .map_err(|e| LedgerToolError::Generic(e.to_string()))?;
 
-    let (block_tx, block_rx) = crossbeam_channel::bounded(10000);
-    let (tx_tx, tx_rx) = crossbeam_channel::bounded(2_25_000);
+    let (block_tx, block_rx) = crossbeam_channel::bounded(BLOCK_CHANNEL_SIZE);
+    let (tx_tx, tx_rx) = crossbeam_channel::bounded(TX_CHANNEL_SIZE);
 
-    let mut writer = local_store.get_writer(block_rx, tx_rx).unwrap();
+    let mut writer = local_store
+        .get_writer(block_rx, tx_rx)
+        .map_err(|e| LedgerToolError::Generic(e.to_string()))?;
 
-    let (tx, rx) = crossbeam_channel::bounded(64 * 2);
-
-    const MIN_READERS: usize = 1; // Minimum number of reader threads
-    const MAX_READERS: usize = 64; // Maximum number of reader threads
-    const RESERVE_CPUS: usize = 4; // CPUs to reserve for system/other tasks
+    let (tx, rx) = crossbeam_channel::bounded(READER_BUFFER_SIZE);
 
     // Spawn reader threads
     let available_cpus = num_cpus::get().saturating_sub(RESERVE_CPUS);
@@ -1294,10 +1301,6 @@ pub async fn write_blocks_to_duckdb(
             last_update = now;
             last_count = total_records;
         }
-
-        // if total_records >= 100_000 {
-        //     break;
-        // }
     }
 
     // Drop original senders after processing is complete
@@ -1310,10 +1313,13 @@ pub async fn write_blocks_to_duckdb(
         .copy_data_to_file(
             start_slot,
             end_slot,
-            "/root/raid/nvme/csv_output/test.parquet",
+            output_dir
+                .join(format!("blocks_{}_{}.parquet", start_slot, end_slot))
+                .to_str()
+                .ok_or_else(|| LedgerToolError::Generic("Invalid output path".to_string()))?,
         )
         .await
-        .unwrap();
+        .map_err(|e| LedgerToolError::Generic(e.to_string()))?;
 
     Ok(())
 }
