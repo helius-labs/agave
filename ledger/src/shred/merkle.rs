@@ -333,13 +333,13 @@ macro_rules! impl_merkle_shred {
         // Where the merkle proof starts in the shred binary.
         fn proof_offset(&self) -> Result<usize, Error> {
             let ShredVariant::$variant {
-                proof_size,
-                chained,
-                resigned,
-            } = self.common_header.shred_variant
-            else {
-                return Err(Error::InvalidShredVariant);
-            };
+                        proof_size,
+                        chained,
+                        resigned,
+                    } = self.common_header.shred_variant
+                    else {
+                        return Err(Error::InvalidShredVariant);
+                    };
             Self::get_proof_offset(proof_size, chained, resigned)
         }
 
@@ -351,13 +351,13 @@ macro_rules! impl_merkle_shred {
 
         fn chained_merkle_root_offset(&self) -> Result<usize, Error> {
             let ShredVariant::$variant {
-                proof_size,
-                chained,
-                resigned,
-            } = self.common_header.shred_variant
-            else {
-                return Err(Error::InvalidShredVariant);
-            };
+                        proof_size,
+                        chained,
+                        resigned,
+                    } = self.common_header.shred_variant
+                    else {
+                        return Err(Error::InvalidShredVariant);
+                    };
             Self::get_chained_merkle_root_offset(proof_size, chained, resigned)
         }
 
@@ -384,8 +384,8 @@ macro_rules! impl_merkle_shred {
         fn set_chained_merkle_root(&mut self, chained_merkle_root: &Hash) -> Result<(), Error> {
             let offset = self.chained_merkle_root_offset()?;
             let Some(buffer) = self.payload.get_mut(offset..offset + SIZE_OF_MERKLE_ROOT) else {
-                return Err(Error::InvalidPayloadSize(self.payload.len()));
-            };
+                        return Err(Error::InvalidPayloadSize(self.payload.len()));
+                    };
             buffer.copy_from_slice(chained_merkle_root.as_ref());
             Ok(())
         }
@@ -439,21 +439,21 @@ macro_rules! impl_merkle_shred {
         fn set_retransmitter_signature(&mut self, signature: &Signature) -> Result<(), Error> {
             let offset = self.retransmitter_signature_offset()?;
             let Some(buffer) = self.payload.get_mut(offset..offset + SIZE_OF_SIGNATURE) else {
-                return Err(Error::InvalidPayloadSize(self.payload.len()));
-            };
+                        return Err(Error::InvalidPayloadSize(self.payload.len()));
+                    };
             buffer.copy_from_slice(signature.as_ref());
             Ok(())
         }
 
         pub(super) fn retransmitter_signature_offset(&self) -> Result<usize, Error> {
             let ShredVariant::$variant {
-                proof_size,
-                chained,
-                resigned,
-            } = self.common_header.shred_variant
-            else {
-                return Err(Error::InvalidShredVariant);
-            };
+                        proof_size,
+                        chained,
+                        resigned,
+                    } = self.common_header.shred_variant
+                    else {
+                        return Err(Error::InvalidShredVariant);
+                    };
             Self::get_retransmitter_signature_offset(proof_size, chained, resigned)
         }
 
