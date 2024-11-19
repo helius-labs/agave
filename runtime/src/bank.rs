@@ -70,7 +70,8 @@ use {
         accounts::{AccountAddressFilter, Accounts, PubkeyAccountSlot},
         accounts_db::{
             AccountShrinkThreshold, AccountStorageEntry, AccountsDb, AccountsDbConfig,
-            CalcAccountsHashDataSource, PubkeyHashAccount, VerifyAccountsHashAndLamportsConfig,
+            CalcAccountsHashDataSource, OldStoragesPolicy, PubkeyHashAccount,
+            VerifyAccountsHashAndLamportsConfig,
         },
         accounts_hash::{
             AccountHash, AccountsHash, CalcAccountsHashConfig, HashStats, IncrementalAccountsHash,
@@ -5944,6 +5945,7 @@ impl Bank {
                     true,
                     Some(last_full_snapshot_slot),
                     self.epoch_schedule(),
+                    self.clean_accounts_old_storages_policy(),
                 );
                 info!("Cleaning... Done.");
             } else {
@@ -6285,6 +6287,7 @@ impl Bank {
             false,
             last_full_snapshot_slot,
             self.epoch_schedule(),
+            self.clean_accounts_old_storages_policy(),
         );
     }
 
