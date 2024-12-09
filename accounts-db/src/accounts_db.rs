@@ -3066,6 +3066,8 @@ impl AccountsDb {
                 slot_one_epoch_old.saturating_sub(acceptable_straggler_slot_count);
             let (old_storages, old_slots) = self.get_snapshot_storages(..old_slot_cutoff);
             let num_old_storages = old_storages.len();
+            self.accounts_index
+                .add_uncleaned_roots(old_slots.iter().copied());
             for (old_slot, old_storage) in std::iter::zip(old_slots, old_storages) {
                 self.dirty_stores.entry(old_slot).or_insert(old_storage);
             }
