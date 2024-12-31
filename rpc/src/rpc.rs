@@ -500,6 +500,10 @@ impl JsonRpcRequestProcessor {
             min_context_slot,
         })?;
         let encoding = encoding.unwrap_or(UiAccountEncoding::Binary);
+
+        // Early filter verification
+        verify_spl_token_owner_filters(program_id, &filters)?;
+
         optimize_filters(&mut filters);
         let keyed_accounts = {
             if let Some(owner) = get_spl_token_owner_filter(program_id, &filters) {
@@ -2392,6 +2396,46 @@ fn encode_account<T: ReadableAccount>(
             pubkey, account, encoding, None, data_slice,
         ))
     }
+}
+
+fn verify_spl_token_owner_filters(
+    program_id: &Pubkey,
+    filters: &[RpcFilterType],
+) -> std::result::Result<(), Error> {
+    if !is_known_spl_token_id(program_id) {
+        return Ok(()); // Not an SPL Token program, so skip
+    }
+
+    let account_packed_len = TokenAccount::get_packed_len();
+    for filter in filters {
+        match filter {
+            RpcFilterType::DataSize(size) => {
+                // Validate the DataSize if you want to require a certain size here
+                if *size != account_packed_len as u64 {
+                    return Err(Error::invalid_params(format!(
+                        "Invalid SPL token data size filter. Expected {}, got {}",
+                        account_packed_len, size
+                    )));
+                }
+            }
+            RpcFilterType::Memcmp(memcmp) => {
+                let offset = memcmp.offset();
+                if let Some(bytes) = memcmp.raw_bytes_as_ref() {
+                    // If the filter references the owner offset, ensure it’s 32 bytes long
+                    if offset == SPL_TOKEN_ACCOUNT_OWNER_OFFSET && bytes.len() != PUBKEY_BYTES {
+                        return Err(Error::invalid_params(format!(
+                            "Incorrect byte length {} for SPL token owner filter, expected {}",
+                            bytes.len(),
+                            PUBKEY_BYTES
+                        )));
+                    }
+                }
+            }
+            RpcFilterType::TokenAccountState => (),
+        }
+    }
+
+    Ok(())
 }
 
 /// Analyze custom filters to determine if the result will be a subset of spl-token accounts by
