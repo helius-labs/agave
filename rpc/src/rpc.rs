@@ -507,12 +507,9 @@ impl JsonRpcRequestProcessor {
         })?;
         let encoding = encoding.unwrap_or(UiAccountEncoding::Binary);
 
-        // Early filter verification
-        verify_spl_token_owner_filters(program_id, &filters)?;
-
         optimize_filters(&mut filters);
         let keyed_accounts = {
-            if let Some(owner) = get_spl_token_owner_filter(program_id, &filters) {
+            if let Some(owner) = get_spl_token_owner_filter(program_id, &filters)? {
                 self.get_filtered_spl_token_accounts_by_owner(
                     &bank,
                     program_id,
@@ -520,7 +517,7 @@ impl JsonRpcRequestProcessor {
                     filters,
                     sort_results,
                 )?
-            } else if let Some(mint) = get_spl_token_mint_filter(program_id, &filters) {
+            } else if let Some(mint) = get_spl_token_mint_filter(program_id, &filters)? {
                 self.get_filtered_spl_token_accounts_by_mint(
                     &bank,
                     program_id,
@@ -2404,58 +2401,20 @@ fn encode_account<T: ReadableAccount>(
     }
 }
 
-fn verify_spl_token_owner_filters(
-    program_id: &Pubkey,
-    filters: &[RpcFilterType],
-) -> std::result::Result<(), Error> {
-    if !is_known_spl_token_id(program_id) {
-        return Ok(()); // Not an SPL Token program, so skip
-    }
-
-    let account_packed_len = TokenAccount::get_packed_len();
-    for filter in filters {
-        match filter {
-            RpcFilterType::DataSize(size) => {
-                // Validate the DataSize if you want to require a certain size here
-                if *size != account_packed_len as u64 {
-                    return Err(Error::invalid_params(format!(
-                        "Invalid SPL token data size filter. Expected {}, got {}",
-                        account_packed_len, size
-                    )));
-                }
-            }
-            RpcFilterType::Memcmp(memcmp) => {
-                let offset = memcmp.offset();
-                if let Some(bytes) = memcmp.raw_bytes_as_ref() {
-                    // If the filter references the owner offset, ensure it’s 32 bytes long
-                    if offset == SPL_TOKEN_ACCOUNT_OWNER_OFFSET && bytes.len() != PUBKEY_BYTES {
-                        return Err(Error::invalid_params(format!(
-                            "Incorrect byte length {} for SPL token owner filter, expected {}",
-                            bytes.len(),
-                            PUBKEY_BYTES
-                        )));
-                    }
-                }
-            }
-            RpcFilterType::TokenAccountState => (),
-        }
-    }
-
-    Ok(())
-}
-
 /// Analyze custom filters to determine if the result will be a subset of spl-token accounts by
 /// owner.
 /// NOTE: `optimize_filters()` should almost always be called before using this method because of
 /// the requirement that `Memcmp::raw_bytes_as_ref().is_some()`.
-fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> Option<Pubkey> {
+fn get_spl_token_owner_filter(
+    program_id: &Pubkey,
+    filters: &[RpcFilterType],
+) -> Result<Option<Pubkey>> {
     if !is_known_spl_token_id(program_id) {
-        return None;
+        return Ok(None);
     }
     let mut data_size_filter: Option<u64> = None;
     let mut memcmp_filter: Option<&[u8]> = None;
     let mut owner_key: Option<Pubkey> = None;
-    let mut incorrect_owner_len: Option<usize> = None;
     let mut token_account_state_filter = false;
     let account_packed_len = TokenAccount::get_packed_len();
     for filter in filters {
@@ -2470,7 +2429,11 @@ fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) ->
                         if bytes.len() == PUBKEY_BYTES {
                             owner_key = Pubkey::try_from(bytes).ok();
                         } else {
-                            incorrect_owner_len = Some(bytes.len());
+                            return Err(Error::invalid_params(format!(
+                                "Incorrect byte length {} for SPL token owner filter, expected {}",
+                                bytes.len(),
+                                PUBKEY_BYTES
+                            )));
                         }
                     }
                 }
@@ -2482,16 +2445,10 @@ fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) ->
         || memcmp_filter == Some(&[ACCOUNTTYPE_ACCOUNT])
         || token_account_state_filter
     {
-        if let Some(incorrect_owner_len) = incorrect_owner_len {
-            info!(
-                "Incorrect num bytes ({:?}) provided for spl_token_owner_filter",
-                incorrect_owner_len
-            );
-        }
-        owner_key
+        Ok(owner_key)
     } else {
         debug!("spl_token program filters do not match by-owner index requisites");
-        None
+        Ok(None)
     }
 }
 
@@ -2499,14 +2456,16 @@ fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) ->
 /// mint.
 /// NOTE: `optimize_filters()` should almost always be called before using this method because of
 /// the requirement that `Memcmp::raw_bytes_as_ref().is_some()`.
-fn get_spl_token_mint_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> Option<Pubkey> {
+fn get_spl_token_mint_filter(
+    program_id: &Pubkey,
+    filters: &[RpcFilterType],
+) -> Result<Option<Pubkey>> {
     if !is_known_spl_token_id(program_id) {
-        return None;
+        return Ok(None);
     }
     let mut data_size_filter: Option<u64> = None;
     let mut memcmp_filter: Option<&[u8]> = None;
     let mut mint: Option<Pubkey> = None;
-    let mut incorrect_mint_len: Option<usize> = None;
     let mut token_account_state_filter = false;
     let account_packed_len = TokenAccount::get_packed_len();
     for filter in filters {
@@ -2521,7 +2480,11 @@ fn get_spl_token_mint_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> 
                         if bytes.len() == PUBKEY_BYTES {
                             mint = Pubkey::try_from(bytes).ok();
                         } else {
-                            incorrect_mint_len = Some(bytes.len());
+                            return Err(Error::invalid_params(format!(
+                                "Incorrect byte length {} for SPL token mint filter, expected {}",
+                                bytes.len(),
+                                PUBKEY_BYTES
+                            )));
                         }
                     }
                 }
@@ -2533,16 +2496,10 @@ fn get_spl_token_mint_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> 
         || memcmp_filter == Some(&[ACCOUNTTYPE_ACCOUNT])
         || token_account_state_filter
     {
-        if let Some(incorrect_mint_len) = incorrect_mint_len {
-            info!(
-                "Incorrect num bytes ({:?}) provided for spl_token_mint_filter",
-                incorrect_mint_len
-            );
-        }
-        mint
+        Ok(mint)
     } else {
         debug!("spl_token program filters do not match by-mint index requisites");
-        None
+        Ok(None)
     }
 }
 
