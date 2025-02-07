@@ -1,0 +1,6 @@
+[submodule "system"]
+	path = system
+	url = https://github.com/solana-program/system
+[submodule "stake"]
+	path = stake
+	url = https://github.com/solana-program/stake

@@ -285,8 +285,8 @@ solana-secp256k1-recover = { path = "secp256k1-recover", version = "=2.2.0" }
 solana-short-vec = { path = "short-vec", version = "=2.2.0" }
 solana-shred-version = { path = "shred-version", version = "=2.2.0" }
 solana-stable-layout = { path = "stable-layout", version = "=2.2.0" }
-solana-stake-interface = { version = "1.2.1" }
-solana-system-interface = "1.0"
+solana-stake-interface = { path = "../stake/interface", version = "=1.2.0" }
+solana-system-interface = { path = "../system/interface", version = "=1.0.0" }
 solana-system-transaction = { path = "system-transaction", version = "=2.2.0" }
 solana-sysvar = { path = "sysvar", version = "=2.2.0" }
 solana-sysvar-id = { path = "sysvar-id", version = "=2.2.0" }

@@ -148,6 +148,8 @@ members = [
     "zk-keygen",
     "zk-sdk",
     "zk-token-sdk",
+    "system/interface",
+    "stake/interface"
 ]
 
 exclude = ["programs/sbf", "sdk", "svm/examples", "svm/tests/example-programs"]
@@ -519,7 +521,8 @@ solana-send-transaction-service = { path = "send-transaction-service", version =
 solana-short-vec = { path = "sdk/short-vec", version = "=2.2.0" }
 solana-shred-version = { path = "sdk/shred-version", version = "=2.2.0" }
 solana-stable-layout = { path = "sdk/stable-layout", version = "=2.2.0" }
-solana-stake-interface = { version = "1.2.1" }
+solana-stake-interface = { path = "stake/interface", version = "=1.2.0" }
+solana-system-interface = { path = "system/interface", version = "=1.0.0" }
 solana-stake-program = { path = "programs/stake", version = "=2.2.0" }
 solana-storage-bigtable = { path = "storage-bigtable", version = "=2.2.0" }
 solana-storage-proto = { path = "storage-proto", version = "=2.2.0" }
@@ -528,7 +531,6 @@ solana-svm = { path = "svm", version = "=2.2.0" }
 solana-svm-conformance = { path = "svm-conformance", version = "=2.2.0" }
 solana-svm-rent-collector = { path = "svm-rent-collector", version = "=2.2.0" }
 solana-svm-transaction = { path = "svm-transaction", version = "=2.2.0" }
-solana-system-interface = "1.0"
 solana-system-program = { path = "programs/system", version = "=2.2.0" }
 solana-system-transaction = { path = "sdk/system-transaction", version = "=2.2.0" }
 solana-sysvar = { path = "sdk/sysvar", version = "=2.2.0" }
