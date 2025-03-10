@@ -61,11 +61,18 @@ impl Bank {
             .feature_set
             .is_active(&feature_set::accounts_lt_hash::id())
         {
+            let checksum = accounts_lt_hash.0.checksum();
+            if let Err(e) = std::fs::write(
+                format!("accounts_lt_hash/{}.txt", self.slot()),
+                format!("{}", checksum),
+            ) {
+                log::error!("Failed to write accounts lt hash to file: {}", e);
+            }
             log::info!(
                 "updated accounts lattice hash for slot {}, delta_lt_hash checksum: {}, accounts_lt_hash checksum: {}",
                 self.slot(),
                 delta_lt_hash.checksum(),
-                accounts_lt_hash.0.checksum(),
+                checksum,
             );
         }
     }
