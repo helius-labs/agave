@@ -5392,23 +5392,24 @@ impl Bank {
 
         let slot = self.slot();
 
-        let verify_kind = match (
-            duplicates_lt_hash.is_some(),
-            self.rc
-                .accounts
-                .accounts_db
-                .is_experimental_accumulator_hash_enabled(),
-        ) {
-            (true, _) => VerifyKind::Lattice,
-            (false, false) => VerifyKind::Merkle,
-            (false, true) => {
-                // Calculating the accounts lt hash from storages *requires* a duplicates_lt_hash.
-                // If it is None here, then we must use the index instead, which also means we
-                // cannot run in the background.
-                config.run_in_background = false;
-                VerifyKind::Lattice
-            }
-        };
+        // let verify_kind = match (
+        //     duplicates_lt_hash.is_some(),
+        //     self.rc
+        //         .accounts
+        //         .accounts_db
+        //         .is_experimental_accumulator_hash_enabled(),
+        // ) {
+        //     (true, _) => VerifyKind::Lattice,
+        //     (false, false) => VerifyKind::Merkle,
+        //     (false, true) => {
+        //         // Calculating the accounts lt hash from storages *requires* a duplicates_lt_hash.
+        //         // If it is None here, then we must use the index instead, which also means we
+        //         // cannot run in the background.
+        //         config.run_in_background = false;
+        //         VerifyKind::Lattice
+        //     }
+        // };
+        let verify_kind = VerifyKind::Merkle;
 
         if config.require_rooted_bank && !accounts.accounts_db.accounts_index.is_alive_root(slot) {
             if let Some(parent) = self.parent() {

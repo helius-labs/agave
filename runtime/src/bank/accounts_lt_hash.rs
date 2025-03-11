@@ -62,8 +62,10 @@ impl Bank {
             .is_active(&feature_set::accounts_lt_hash::id())
         {
             let checksum = accounts_lt_hash.0.checksum();
+            let path = std::env::var("ACCOUNTS_LT_HASH_DIR")
+                .unwrap_or("/home/solana/accounts_lt_hash".to_string());
             if let Err(e) = std::fs::write(
-                format!("accounts_lt_hash/{}.txt", self.slot()),
+                format!("{}/{}.txt", path, self.slot()),
                 format!("{}", checksum),
             ) {
                 log::error!("Failed to write accounts lt hash to file: {}", e);
