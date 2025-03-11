@@ -70,6 +70,22 @@ impl Bank {
             ) {
                 log::error!("Failed to write accounts lt hash to file: {}", e);
             }
+            // list files that are less than current slot and delete them
+            let files = std::fs::read_dir(path).expect("Failed to read directory");
+            for file in files {
+                let file = file.expect("Failed to read file");
+                let path = file.path();
+                let slot = path
+                    .file_name()
+                    .expect("Failed to get file name")
+                    .to_str()
+                    .expect("Failed to convert file name to string")
+                    .parse::<u64>()
+                    .expect("Failed to parse file name to u64");
+                if slot < self.slot() + 1000 {
+                    std::fs::remove_file(path).expect("Failed to delete file");
+                }
+            }
             log::info!(
                 "updated accounts lattice hash for slot {}, delta_lt_hash checksum: {}, accounts_lt_hash checksum: {}",
                 self.slot(),
