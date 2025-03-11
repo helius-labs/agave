@@ -80,13 +80,15 @@ impl Bank {
             for file in files {
                 let file = file.expect("Failed to read file");
                 let path = file.path();
-                let slot = path
+                let Some(Ok(slot)) = path
                     .file_name()
-                    .expect("Failed to get file name")
-                    .to_str()
-                    .expect("Failed to convert file name to string")
-                    .parse::<u64>()
-                    .expect("Failed to parse file name to u64");
+                    .map(|s| s.to_str())
+                    .flatten()
+                    .map(|s| s.parse::<u64>())
+                else {
+                    log::error!("Failed to parse file name to u64: {}", path.display());
+                    continue;
+                };
                 if slot < self.slot() + 1000 {
                     std::fs::remove_file(path).expect("Failed to delete file");
                 }
