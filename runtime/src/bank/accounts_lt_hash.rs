@@ -64,11 +64,16 @@ impl Bank {
             let checksum = accounts_lt_hash.0.checksum();
             let path = std::env::var("ACCOUNTS_LT_HASH_DIR")
                 .unwrap_or("/home/solana/accounts_lt_hash".to_string());
+            // create dir if it doesn't exist
+            if let Err(e) = std::fs::create_dir_all(path.clone()) {
+                log::error!("Failed to create directory accounts_lt_hash dir: {}", e);
+            }
             if let Err(e) = std::fs::write(
                 format!("{}/{}.txt", path, self.slot()),
                 format!("{}", checksum),
             ) {
                 log::error!("Failed to write accounts lt hash to file: {}", e);
+                return;
             }
             // list files that are less than current slot and delete them
             let files = std::fs::read_dir(path).expect("Failed to read directory");
