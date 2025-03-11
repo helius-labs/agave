@@ -88,7 +88,7 @@ impl Bank {
                     log::error!("Failed to parse file name to u64: {}", path.display());
                     continue;
                 };
-                if slot < self.slot() + 1000 {
+                if slot < self.slot() - 1000 {
                     std::fs::remove_file(path).expect("Failed to delete file");
                 }
             }
