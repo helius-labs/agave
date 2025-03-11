@@ -68,10 +68,9 @@ impl Bank {
             if let Err(e) = std::fs::create_dir_all(path.clone()) {
                 log::error!("Failed to create directory accounts_lt_hash dir: {}", e);
             }
-            if let Err(e) = std::fs::write(
-                format!("{}/{}.txt", path, self.slot()),
-                format!("{}", checksum),
-            ) {
+            if let Err(e) =
+                std::fs::write(format!("{}/{}", path, self.slot()), format!("{}", checksum))
+            {
                 log::error!("Failed to write accounts lt hash to file: {}", e);
                 return;
             }
