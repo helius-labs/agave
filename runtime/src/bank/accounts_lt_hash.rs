@@ -61,6 +61,7 @@ impl Bank {
             .feature_set
             .is_active(&feature_set::accounts_lt_hash::id())
         {
+            let base64_lt_hash = accounts_lt_hash.0.to_base64();
             let checksum = accounts_lt_hash.0.checksum();
             let path = std::env::var("ACCOUNTS_LT_HASH_DIR")
                 .unwrap_or("/home/solana/accounts_lt_hash".to_string());
@@ -68,9 +69,7 @@ impl Bank {
             if let Err(e) = std::fs::create_dir_all(path.clone()) {
                 log::error!("Failed to create directory accounts_lt_hash dir: {}", e);
             }
-            if let Err(e) =
-                std::fs::write(format!("{}/{}", path, self.slot()), format!("{}", checksum))
-            {
+            if let Err(e) = std::fs::write(format!("{}/{}", path, self.slot()), base64_lt_hash) {
                 log::error!("Failed to write accounts lt hash to file: {}", e);
                 return;
             }

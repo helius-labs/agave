@@ -1,5 +1,8 @@
 use {
-    base64::{display::Base64Display, prelude::BASE64_STANDARD},
+    base64::{
+        display::Base64Display, engine::general_purpose::STANDARD as BASE64,
+        prelude::BASE64_STANDARD, Engine,
+    },
     std::{fmt, str},
 };
 
@@ -53,6 +56,30 @@ impl LtHash {
     pub fn checksum(&self) -> Checksum {
         let hash = blake3::hash(bytemuck::must_cast_slice(&self.0));
         Checksum(hash.into())
+    }
+
+    /// Serialize LtHash to a base64 string
+    pub fn to_base64(&self) -> String {
+        // Convert [u16] to bytes and encode
+        let bytes = bytemuck::cast_slice(&self.0);
+        BASE64.encode(bytes)
+    }
+    /// Deserialize LtHash from a base64 string
+    pub fn from_base64(s: &str) -> Result<Self, base64::DecodeError> {
+        // Decode base64 to bytes
+        let bytes = BASE64.decode(s)?;
+
+        // Check length
+        if bytes.len() != Self::NUM_ELEMENTS * 2 {
+            return Err(base64::DecodeError::InvalidLength(bytes.len()));
+        }
+
+        // Convert bytes to [u16; NUM_ELEMENTS]
+        let array: [u16; Self::NUM_ELEMENTS] = bytemuck::cast_slice(&bytes)
+            .try_into()
+            .expect("Length was already checked");
+
+        Ok(Self(array))
     }
 }
 
