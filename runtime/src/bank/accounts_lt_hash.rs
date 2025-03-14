@@ -56,41 +56,42 @@ impl Bank {
         let mut accounts_lt_hash = self.accounts_lt_hash.lock().unwrap();
         accounts_lt_hash.0.mix_in(&delta_lt_hash);
 
+        let base64_lt_hash = accounts_lt_hash.0.to_base64();
+        let checksum = accounts_lt_hash.0.checksum();
+        let path = std::env::var("ACCOUNTS_LT_HASH_DIR")
+            .unwrap_or("/home/solana/accounts_lt_hash".to_string());
+        // create dir if it doesn't exist
+        if let Err(e) = std::fs::create_dir_all(path.clone()) {
+            log::error!("Failed to create directory accounts_lt_hash dir: {}", e);
+        }
+        if let Err(e) = std::fs::write(format!("{}/{}", path, self.slot()), base64_lt_hash) {
+            log::error!("Failed to write accounts lt hash to file: {}", e);
+            return;
+        }
+        // list files that are less than current slot and delete them
+        let files = std::fs::read_dir(path).expect("Failed to read directory");
+        for file in files {
+            let file = file.expect("Failed to read file");
+            let path = file.path();
+            let Some(Ok(slot)) = path
+                .file_name()
+                .map(|s| s.to_str())
+                .flatten()
+                .map(|s| s.parse::<u64>())
+            else {
+                log::error!("Failed to parse file name to u64: {}", path.display());
+                continue;
+            };
+            if slot < self.slot() - 1000 {
+                std::fs::remove_file(path).expect("Failed to delete file");
+            }
+        }
+
         // If the feature gate is not yet active, log the lt hash checksums for debug/testing
         if !self
             .feature_set
             .is_active(&feature_set::accounts_lt_hash::id())
         {
-            let base64_lt_hash = accounts_lt_hash.0.to_base64();
-            let checksum = accounts_lt_hash.0.checksum();
-            let path = std::env::var("ACCOUNTS_LT_HASH_DIR")
-                .unwrap_or("/home/solana/accounts_lt_hash".to_string());
-            // create dir if it doesn't exist
-            if let Err(e) = std::fs::create_dir_all(path.clone()) {
-                log::error!("Failed to create directory accounts_lt_hash dir: {}", e);
-            }
-            if let Err(e) = std::fs::write(format!("{}/{}", path, self.slot()), base64_lt_hash) {
-                log::error!("Failed to write accounts lt hash to file: {}", e);
-                return;
-            }
-            // list files that are less than current slot and delete them
-            let files = std::fs::read_dir(path).expect("Failed to read directory");
-            for file in files {
-                let file = file.expect("Failed to read file");
-                let path = file.path();
-                let Some(Ok(slot)) = path
-                    .file_name()
-                    .map(|s| s.to_str())
-                    .flatten()
-                    .map(|s| s.parse::<u64>())
-                else {
-                    log::error!("Failed to parse file name to u64: {}", path.display());
-                    continue;
-                };
-                if slot < self.slot() - 1000 {
-                    std::fs::remove_file(path).expect("Failed to delete file");
-                }
-            }
             log::info!(
                 "updated accounts lattice hash for slot {}, delta_lt_hash checksum: {}, accounts_lt_hash checksum: {}",
                 self.slot(),
