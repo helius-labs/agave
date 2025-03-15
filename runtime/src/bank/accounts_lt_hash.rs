@@ -538,6 +538,32 @@ mod tests {
             .map(|address| bank.get_account_with_fixed_root(address))
             .collect();
 
+        // manual verification of the accounts lt hash
+        let mut prev_manual_check = LtHash::identity();
+        let mut prev_accounts = vec![
+            (prev_mint.clone(), mint_keypair.pubkey()),
+            (prev_account1.clone(), keypair1.pubkey()),
+            (prev_account2.clone(), keypair2.pubkey()),
+            (prev_account3.clone(), keypair3.pubkey()),
+            (prev_account4.clone(), keypair4.pubkey()),
+            (prev_account5.clone(), keypair5.pubkey()),
+        ];
+        prev_accounts.extend(
+            prev_sysvar_accounts
+                .clone()
+                .into_iter()
+                .zip(sysvars.into_iter())
+                .collect::<Vec<_>>(),
+        );
+
+        for (account, pubkey) in prev_accounts {
+            if let Some(account) = account {
+                prev_manual_check.mix_in(&AccountsDb::lt_hash_account(&account, &pubkey).0);
+            }
+        }
+
+        assert_eq!(prev_manual_check, prev_accounts_lt_hash.0);
+
         let bank = {
             let slot = bank.slot() + 1;
             new_bank_from_parent_with_bank_forks(&bank_forks, bank, &Pubkey::default(), slot)
@@ -590,8 +616,9 @@ mod tests {
             .map(|address| bank.get_account_with_fixed_root(address))
             .collect();
 
-        let mut expected_delta_lt_hash = LtHash::identity();
+        assert_eq!(prev_manual_check, prev_accounts_lt_hash.0);
         let mut expected_accounts_lt_hash = prev_accounts_lt_hash.clone();
+        let mut expected_delta_lt_hash = LtHash::identity();
         let mut updater =
             |address: &Pubkey, prev: Option<AccountSharedData>, post: Option<AccountSharedData>| {
                 // if there was an alive account, mix out
