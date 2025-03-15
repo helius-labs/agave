@@ -5301,7 +5301,8 @@ impl Bank {
             ("accounts_delta_hash_us", accounts_delta_hash_us, i64),
         );
         info!(
-            "bank frozen: {slot} hash: {hash} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}{}, stats: {bank_hash_stats:?}",
+            "bank frozen: {slot} accounts_lt_hash: {} hash: {hash} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}{}, stats: {bank_hash_stats:?}",
+            self.accounts_lt_hash.lock().unwrap().0.checksum().to_string(),
             accounts_delta_hash.0,
             self.signature_count(),
             self.last_blockhash(),
