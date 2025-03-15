@@ -6816,7 +6816,7 @@ impl AccountsDb {
             });
 
         lt_hash.mix_out(&duplicates_lt_hash.0);
-
+        log::info!("ChecksumAgaveStartup: {}", lt_hash.checksum().to_string());
         AccountsLtHash(lt_hash)
     }
 

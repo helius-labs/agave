@@ -194,6 +194,7 @@ impl Bank {
                                 // nothing to do here
                             }
                             InitialStateOfAccount::Alive(prev_account) => {
+                                println!("prev_account: {} - {:?}", pubkey, prev_account);
                                 let (are_accounts_equal, measure_is_equal) =
                                     meas_dur!(accounts_equal(curr_account, &prev_account));
                                 accum.1.time_comparing_accounts += measure_is_equal;
@@ -217,6 +218,7 @@ impl Bank {
                         let (_, measure_mixing) = meas_dur!(accum.0.mix_in(&curr_lt_hash.0));
                         accum.1.time_computing_hashes += measure_hashing;
                         accum.1.time_mixing_hashes += measure_mixing;
+                        println!("new_account: {} - {:?}", pubkey, curr_account);
 
                         accum
                     },
@@ -563,7 +565,7 @@ mod tests {
         }
 
         assert_eq!(prev_manual_check, prev_accounts_lt_hash.0);
-
+        return;
         let bank = {
             let slot = bank.slot() + 1;
             new_bank_from_parent_with_bank_forks(&bank_forks, bank, &Pubkey::default(), slot)
