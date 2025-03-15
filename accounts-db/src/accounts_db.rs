@@ -6786,6 +6786,7 @@ impl AccountsDb {
                 accum
             });
 
+        log::info!("ChecksumAgaveStartup: {}", lt_hash.checksum().to_string());
         AccountsLtHash(lt_hash)
     }
 
