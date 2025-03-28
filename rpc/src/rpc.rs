@@ -1,4 +1,6 @@
 //! The `rpc` module implements the Solana RPC interface.
+use std::time::Instant;
+
 use {
     crate::{
         filter::filter_allows, max_slots::MaxSlots,
@@ -1927,6 +1929,7 @@ impl JsonRpcRequestProcessor {
                     }
                 }
 
+                let bt_start = Instant::now();
                 let bigtable_results = bigtable_ledger_storage
                     .get_confirmed_signatures_for_address(
                         &address,
@@ -1937,6 +1940,11 @@ impl JsonRpcRequestProcessor {
                     .await;
                 match bigtable_results {
                     Ok(bigtable_results) => {
+                        datapoint_info!(
+                            "bigtable_get_sigs",
+                            ("latency_ms", bt_start.elapsed().as_millis(), i64)
+                        );
+                        datapoint_info!("bigtable_get_sigs", ("call_count", 1, i64));
                         let results_set: HashSet<_> =
                             results.iter().map(|result| result.signature).collect();
                         for (bigtable_result, _) in bigtable_results {
