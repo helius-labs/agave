@@ -3225,10 +3225,10 @@ impl ReplayStage {
                 );
                 did_complete_bank = true;
                 let _ = cluster_slots_update_sender.send(vec![bank_slot]);
+                bank.freeze();
                 if let Some(transaction_status_sender) = transaction_status_sender {
                     transaction_status_sender.send_transaction_status_freeze_message(bank);
                 }
-                bank.freeze();
                 datapoint_info!(
                     "bank_frozen",
                     ("slot", bank_slot, i64),
