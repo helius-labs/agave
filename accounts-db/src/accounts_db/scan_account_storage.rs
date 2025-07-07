@@ -224,10 +224,7 @@ impl AccountsDb {
                 config.epoch_schedule,
                 snapshot_storages.max_slot_inclusive(),
             );
-        let slots_per_epoch = config
-            .rent_collector
-            .epoch_schedule
-            .get_slots_in_epoch(config.rent_collector.epoch);
+        let slots_per_epoch = config.epoch_schedule.get_slots_in_epoch(config.epoch);
         let one_epoch_old = snapshot_storages
             .range()
             .end
@@ -380,7 +377,7 @@ impl AccountsDb {
     where
         S: AppendVecScan,
     {
-        storage.accounts.scan_accounts(|account| {
+        storage.accounts.scan_accounts(|_offset, account| {
             if scanner.filter(account.pubkey()) {
                 scanner.found_account(&LoadedAccount::Stored(account))
             }
@@ -707,7 +704,7 @@ mod tests {
                     let slot = storage.slot();
                     let copied_storage = accounts_db.create_and_insert_store(slot, 10000, "test");
                     let mut all_accounts = Vec::default();
-                    storage.accounts.scan_accounts(|acct| {
+                    storage.accounts.scan_accounts(|_offset, acct| {
                         all_accounts.push((*acct.pubkey(), acct.to_account_shared_data()));
                     });
                     let accounts = all_accounts
@@ -741,7 +738,7 @@ mod tests {
                 let slot = storage.slot() + max_slot;
                 let copied_storage = accounts_db.create_and_insert_store(slot, 10000, "test");
                 let mut all_accounts = Vec::default();
-                storage.accounts.scan_accounts(|acct| {
+                storage.accounts.scan_accounts(|_offset, acct| {
                     all_accounts.push((*acct.pubkey(), acct.to_account_shared_data()));
                 });
                 let accounts = all_accounts

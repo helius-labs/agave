@@ -177,9 +177,8 @@ fn run_generate_index_duplicates_within_slot_test(db: AccountsDb, reverse: bool)
     // construct append vec with account to generate an index from
     append_vec.accounts.append_accounts(&storable_accounts, 0);
 
-    let genesis_config = GenesisConfig::default();
     assert!(!db.accounts_index.contains(&pubkey));
-    let result = db.generate_index(None, false, &genesis_config, false);
+    let result = db.generate_index(None, false, false);
     // index entry should only contain a single entry for the pubkey since index cannot hold more than 1 entry per slot
     let entry = db.accounts_index.get_cloned(&pubkey).unwrap();
     assert_eq!(entry.slot_list.read().unwrap().len(), 1);
@@ -217,9 +216,8 @@ fn test_generate_index_for_single_ref_zero_lamport_slot() {
     let data = [(&pubkey, &account)];
     let storable_accounts = (slot0, &data[..]);
     append_vec.accounts.append_accounts(&storable_accounts, 0);
-    let genesis_config = GenesisConfig::default();
     assert!(!db.accounts_index.contains(&pubkey));
-    let result = db.generate_index(None, false, &genesis_config, false);
+    let result = db.generate_index(None, false, false);
     let entry = db.accounts_index.get_cloned(&pubkey).unwrap();
     assert_eq!(entry.slot_list.read().unwrap().len(), 1);
     assert_eq!(append_vec.alive_bytes(), aligned_stored_size(0));
@@ -2107,8 +2105,6 @@ fn test_hash_stored_account() {
 
 pub static EPOCH_SCHEDULE: std::sync::LazyLock<EpochSchedule> =
     std::sync::LazyLock::new(EpochSchedule::default);
-pub static RENT_COLLECTOR: std::sync::LazyLock<RentCollector> =
-    std::sync::LazyLock::new(RentCollector::default);
 
 impl CalcAccountsHashConfig<'_> {
     pub(crate) fn default() -> Self {
@@ -2116,7 +2112,7 @@ impl CalcAccountsHashConfig<'_> {
             use_bg_thread_pool: false,
             ancestors: None,
             epoch_schedule: &EPOCH_SCHEDULE,
-            rent_collector: &RENT_COLLECTOR,
+            epoch: 0,
             store_detailed_debug_info_on_failure: false,
         }
     }
@@ -2133,17 +2129,14 @@ fn test_verify_accounts_hash() {
     let account = AccountSharedData::new(1, some_data_len, &key);
     let ancestors = vec![(some_slot, 0)].into_iter().collect();
     let epoch_schedule = EpochSchedule::default();
-    let rent_collector = RentCollector::default();
+    let epoch = Epoch::default();
 
     db.store_for_tests(some_slot, &[(&key, &account)]);
     db.add_root_and_flush_write_cache(some_slot);
     let (_, capitalization) = db.update_accounts_hash_for_tests(some_slot, &ancestors, true, true);
 
-    let config = VerifyAccountsHashAndLamportsConfig::new_for_test(
-        &ancestors,
-        &epoch_schedule,
-        &rent_collector,
-    );
+    let config =
+        VerifyAccountsHashAndLamportsConfig::new_for_test(&ancestors, &epoch_schedule, epoch);
 
     assert_matches!(
         db.verify_accounts_hash_and_lamports_for_tests(some_slot, 1, config.clone()),
@@ -2183,12 +2176,9 @@ fn test_verify_bank_capitalization() {
         let account = AccountSharedData::new(1, some_data_len, &key);
         let ancestors = vec![(some_slot, 0)].into_iter().collect();
         let epoch_schedule = EpochSchedule::default();
-        let rent_collector = RentCollector::default();
-        let config = VerifyAccountsHashAndLamportsConfig::new_for_test(
-            &ancestors,
-            &epoch_schedule,
-            &rent_collector,
-        );
+        let epoch = Epoch::default();
+        let config =
+            VerifyAccountsHashAndLamportsConfig::new_for_test(&ancestors, &epoch_schedule, epoch);
 
         db.store_for_tests(some_slot, &[(&key, &account)]);
         if pass == 0 {
@@ -2237,12 +2227,9 @@ fn test_verify_accounts_hash_no_account() {
     db.update_accounts_hash_for_tests(some_slot, &ancestors, true, true);
 
     let epoch_schedule = EpochSchedule::default();
-    let rent_collector = RentCollector::default();
-    let config = VerifyAccountsHashAndLamportsConfig::new_for_test(
-        &ancestors,
-        &epoch_schedule,
-        &rent_collector,
-    );
+    let epoch = Epoch::default();
+    let config =
+        VerifyAccountsHashAndLamportsConfig::new_for_test(&ancestors, &epoch_schedule, epoch);
 
     assert_matches!(
         db.verify_accounts_hash_and_lamports_for_tests(some_slot, 0, config),
@@ -2269,12 +2256,9 @@ fn test_verify_accounts_hash_bad_account_hash() {
     db.add_root_and_flush_write_cache(some_slot);
 
     let epoch_schedule = EpochSchedule::default();
-    let rent_collector = RentCollector::default();
-    let config = VerifyAccountsHashAndLamportsConfig::new_for_test(
-        &ancestors,
-        &epoch_schedule,
-        &rent_collector,
-    );
+    let epoch = Epoch::default();
+    let config =
+        VerifyAccountsHashAndLamportsConfig::new_for_test(&ancestors, &epoch_schedule, epoch);
 
     assert_matches!(
         db.verify_accounts_hash_and_lamports_for_tests(some_slot, 1, config),
@@ -3882,33 +3866,40 @@ define_accounts_db_test!(test_alive_bytes, |accounts_db| {
     // Flushing cache should only create one storage entry
     let storage0 = accounts_db.get_and_assert_single_storage(slot);
 
-    storage0.accounts.scan_index(|account| {
-        let before_size = storage0.alive_bytes();
-        let account_info = accounts_db
-            .accounts_index
-            .get_cloned(&account.index_info.pubkey)
-            .unwrap()
-            .slot_list
-            .read()
-            .unwrap()
-            // Should only be one entry per key, since every key was only stored to slot 0
-            [0];
-        assert_eq!(account_info.0, slot);
-        let reclaims = [account_info];
-        num_obsolete_accounts += reclaims.len();
-        accounts_db.remove_dead_accounts(reclaims.iter(), None, MarkAccountsObsolete::Yes(slot));
-        let after_size = storage0.alive_bytes();
-        if storage0.count() == 0 {
-            // when `remove_dead_accounts` reaches 0 accounts, all bytes are marked as dead
-            assert_eq!(after_size, 0);
-        } else {
-            assert_eq!(before_size, after_size + account.stored_size_aligned);
-            assert_eq!(
-                storage0.get_obsolete_accounts(None).len(),
-                num_obsolete_accounts
+    storage0
+        .accounts
+        .scan_accounts_without_data(|_offset, account| {
+            let before_size = storage0.alive_bytes();
+            let account_info = accounts_db
+                .accounts_index
+                .get_cloned(account.pubkey())
+                .unwrap()
+                .slot_list
+                .read()
+                .unwrap()
+                // Should only be one entry per key, since every key was only stored to slot 0
+                [0];
+            assert_eq!(account_info.0, slot);
+            let reclaims = [account_info];
+            num_obsolete_accounts += reclaims.len();
+            accounts_db.remove_dead_accounts(
+                reclaims.iter(),
+                None,
+                MarkAccountsObsolete::Yes(slot),
             );
-        }
-    });
+            let after_size = storage0.alive_bytes();
+            if storage0.count() == 0 {
+                // when `remove_dead_accounts` reaches 0 accounts, all bytes are marked as dead
+                assert_eq!(after_size, 0);
+            } else {
+                let stored_size_aligned = storage0.accounts.calculate_stored_size(account.data_len);
+                assert_eq!(before_size, after_size + stored_size_aligned);
+                assert_eq!(
+                    storage0.get_obsolete_accounts(None).len(),
+                    num_obsolete_accounts
+                );
+            }
+        });
 });
 
 // Test alive_bytes_exclude_zero_lamport_single_ref_accounts calculation
@@ -6455,14 +6446,15 @@ fn test_shrink_collect_simple() {
                             });
 
                             let storage = db.get_storage_for_slot(slot5).unwrap();
-                            let unique_accounts = db.get_unique_accounts_from_storage_for_shrink(
-                                &storage,
-                                &ShrinkStats::default(),
-                            );
+                            let mut unique_accounts = db
+                                .get_unique_accounts_from_storage_for_shrink(
+                                    &storage,
+                                    &ShrinkStats::default(),
+                                );
 
                             let shrink_collect = db.shrink_collect::<AliveAccounts<'_>>(
                                 &storage,
-                                &unique_accounts,
+                                &mut unique_accounts,
                                 &ShrinkStats::default(),
                             );
                             let expect_single_opposite_alive_account =
@@ -6565,6 +6557,110 @@ fn test_shrink_collect_simple() {
     }
 }
 
+#[test]
+fn test_shrink_collect_with_obsolete_accounts() {
+    solana_logger::setup();
+    let account_count = 100;
+    let pubkeys: Vec<_> = iter::repeat_with(Pubkey::new_unique)
+        .take(account_count)
+        .collect();
+
+    let db = AccountsDb::new_single_for_tests();
+    let slot = 5;
+
+    let mut account = AccountSharedData::new(
+        100, // lamports
+        128, // space
+        AccountSharedData::default().owner(),
+    );
+
+    let mut regular_pubkeys = Vec::new();
+    let mut obsolete_pubkeys = Vec::new();
+    let mut zero_lamport_pubkeys = Vec::new();
+    let mut unref_pubkeys = Vec::new();
+
+    for (i, pubkey) in pubkeys.iter().enumerate() {
+        if i % 3 == 0 {
+            // Mark third account as zero lamport
+            // These will be removed during shrink
+            account.set_lamports(0);
+            zero_lamport_pubkeys.push(*pubkey);
+        } else {
+            // Regular accounts that should be kept
+            account.set_lamports(200);
+            regular_pubkeys.push(*pubkey);
+        }
+        db.store_for_tests(slot, &[(pubkey, &account)]);
+    }
+
+    // Flush the cache
+    db.add_root_and_flush_write_cache(slot);
+
+    let storage = db.get_and_assert_single_storage(slot);
+
+    for (i, pubkey) in pubkeys.iter().enumerate() {
+        // Mark Some accounts obsolete. These will include zero lamport and non zero lamport accounts
+        if i % 5 == 0 {
+            // Lookup the pubkey in the database and find the AccountInfo
+            db.accounts_index
+                .get_with_and_then(pubkey, None, None, false, |account_info| {
+                    db.remove_dead_accounts(
+                        [account_info].iter(),
+                        None,
+                        MarkAccountsObsolete::Yes(slot),
+                    );
+                });
+
+            obsolete_pubkeys.push(*pubkey);
+        } else if i % 4 == 0 {
+            // Purge accounts via clean and ensure that they will be unreffed.
+            db.accounts_index.purge_exact(
+                pubkey,
+                &([slot].into_iter().collect::<HashSet<_>>()),
+                &mut Vec::default(),
+            );
+            unref_pubkeys.push(*pubkey);
+        }
+    }
+
+    let mut unique_accounts =
+        db.get_unique_accounts_from_storage_for_shrink(&storage, &ShrinkStats::default());
+
+    let shrink_collect = db.shrink_collect::<AliveAccounts<'_>>(
+        &storage,
+        &mut unique_accounts,
+        &ShrinkStats::default(),
+    );
+
+    assert_eq!(shrink_collect.slot, slot);
+
+    // Ensure that the keys to unref does not include the obsolete accounts and only includes the unreferenced accounts
+    assert_eq!(
+        shrink_collect
+            .pubkeys_to_unref
+            .into_iter()
+            .collect::<HashSet<_>>(),
+        unref_pubkeys.iter().clone().collect::<HashSet<_>>()
+    );
+
+    // Ensure that the obsolete accounts and accounts to unref are not in the alive list
+    assert_eq!(
+        shrink_collect
+            .alive_accounts
+            .accounts
+            .into_iter()
+            .map(|account| *account.pubkey())
+            .sorted()
+            .collect::<Vec<Pubkey>>(),
+        regular_pubkeys
+            .into_iter()
+            .filter(|account| !unref_pubkeys.contains(account))
+            .filter(|account| !obsolete_pubkeys.contains(account))
+            .sorted()
+            .collect::<Vec<Pubkey>>()
+    );
+}
+
 pub(crate) const CAN_RANDOMLY_SHRINK_FALSE: bool = false;
 
 define_accounts_db_test!(test_combine_ancient_slots_empty, |db| {
@@ -6583,7 +6679,7 @@ fn get_all_accounts_from_storages<'a>(
     storages
         .flat_map(|storage| {
             let mut vec = Vec::default();
-            storage.accounts.scan_accounts(|account| {
+            storage.accounts.scan_accounts(|_offset, account| {
                 vec.push((*account.pubkey(), account.to_account_shared_data()));
             });
             // make sure scan_pubkeys results match
