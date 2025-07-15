@@ -1498,6 +1498,15 @@ impl ConnectionTable {
             Some((last_update, cancel, stream_counter))
         } else {
             if let Some(connection) = connection {
+                if let Some(pubkey) = get_remote_pubkey(&connection) {
+                    if pubkey.to_string() == "HEL1USMZKAL2odpNBj2oCjffnFGaYwmbGmyewGv1e2TU" {
+                        info!(
+                            "closing connection due to too many connections: {}: {}",
+                            connection.remote_address(),
+                            pubkey
+                        );
+                    }
+                }
                 connection.close(
                     CONNECTION_CLOSE_CODE_TOO_MANY.into(),
                     CONNECTION_CLOSE_REASON_TOO_MANY,
