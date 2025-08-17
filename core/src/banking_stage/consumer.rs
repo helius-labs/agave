@@ -295,9 +295,14 @@ impl Consumer {
                     check_program_modification_slot: bank.check_program_modification_slot(),
                     log_messages_bytes_limit: self.log_messages_bytes_limit,
                     limit_to_load_programs: true,
-                    recording_config: ExecutionRecordingConfig::new_single_setting(
-                        transaction_status_sender_enabled
-                    ),
+                    recording_config: ExecutionRecordingConfig {
+                        enable_cpi_recording: transaction_status_sender_enabled,
+                        enable_log_recording: transaction_status_sender_enabled,
+                        enable_return_data_recording: transaction_status_sender_enabled,
+                        enable_transaction_balance_recording: transaction_status_sender_enabled,
+                        enable_geyser_pre_accounts_states: transaction_status_sender_enabled,
+                        enable_geyser_post_accounts_states: transaction_status_sender_enabled,
+                    },
                 }
             ));
         execute_and_commit_timings.load_execute_us = load_execute_us;
