@@ -124,38 +124,6 @@ impl<'a> ValidSlice<'a> {
     }
 }
 
-/// info from an entry useful for building an index
-pub(crate) struct IndexInfo {
-    /// size of entry, aligned to next u64
-    /// This matches the return of `get_account`
-    pub stored_size_aligned: usize,
-    /// info on the entry
-    pub index_info: IndexInfoInner,
-}
-
-/// info from an entry useful for building an index
-pub(crate) struct IndexInfoInner {
-    /// offset to this entry
-    pub offset: usize,
-    pub pubkey: Pubkey,
-    pub lamports: u64,
-    pub data_len: u64,
-}
-
-impl IsZeroLamport for IndexInfoInner {
-    #[inline(always)]
-    fn is_zero_lamport(&self) -> bool {
-        self.lamports == 0
-    }
-}
-
-impl IsZeroLamport for IndexInfo {
-    #[inline(always)]
-    fn is_zero_lamport(&self) -> bool {
-        self.index_info.is_zero_lamport()
-    }
-}
-
 /// offsets to help navigate the persisted format of `AppendVec`
 #[derive(Debug)]
 struct AccountOffsets {
@@ -330,8 +298,8 @@ impl AppendVec {
                 let mmap = unsafe { MmapMut::map_mut(&data) };
                 let mmap = mmap.unwrap_or_else(|err| {
                     panic!(
-                        "Failed to map the data file (size: {size}): {err}. Please increase sysctl \
-                         vm.max_map_count or equivalent for your platform.",
+                        "Failed to map the data file (size: {size}): {err}. Please increase \
+                         sysctl vm.max_map_count or equivalent for your platform.",
                     );
                 });
                 APPEND_VEC_STATS
@@ -404,6 +372,7 @@ impl AppendVec {
         Ok(())
     }
 
+    #[cfg(feature = "dev-context-only-utils")]
     pub fn reset(&self) {
         // Writable state's mutex forces append to be single threaded, but concurrent
         // with reads. See UNSAFE usage in `append_ptr`
