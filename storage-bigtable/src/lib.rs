@@ -197,9 +197,9 @@ impl From<TransactionWithStatusMeta> for StoredConfirmedBlockTransaction {
                 meta: None,
             },
             TransactionWithStatusMeta::Complete(VersionedTransactionWithStatusMeta {
-                transaction,
-                meta,
-            }) => Self {
+                                                    transaction,
+                                                    meta,
+                                                }) => Self {
                 transaction,
                 meta: Some(meta.into()),
             },
@@ -460,7 +460,7 @@ impl LedgerStorage {
             credential_type: CredentialType::Filepath(credential_path),
             ..LedgerStorageConfig::default()
         })
-        .await
+            .await
     }
 
     pub fn new_for_emulator(
@@ -500,7 +500,7 @@ impl LedgerStorage {
             credential_type,
             max_message_size,
         )
-        .await?;
+            .await?;
         Ok(Self { stats, connection })
     }
 
@@ -509,7 +509,7 @@ impl LedgerStorage {
             credential_type: CredentialType::Stringified(credential),
             ..LedgerStorageConfig::default()
         })
-        .await
+            .await
     }
 
     /// Return the available slot that contains a block
@@ -522,6 +522,19 @@ impl LedgerStorage {
             return Ok(None);
         }
         Ok(key_to_slot(&blocks[0]))
+    }
+
+    pub async fn get_confirmed_slots(&self, slots: &[Slot]) -> Result<Vec<Slot>> {
+        self.stats.increment_num_queries();
+        let mut bigtable = self.connection.client();
+        let row_keys = slots.iter().copied().map(slot_to_blocks_key).collect::<Vec<_>>();
+        let blocks = bigtable
+            .row_key_exists_many(
+                "blocks",
+                &row_keys,
+            )
+            .await?;
+        Ok(blocks.into_iter().filter_map(|s| key_to_slot(&s)).collect())
     }
 
     /// Fetch the next slots after the provided slot that contains a block
@@ -551,7 +564,7 @@ impl LedgerStorage {
     pub async fn get_confirmed_blocks_with_data<'a>(
         &self,
         slots: &'a [Slot],
-    ) -> Result<impl Iterator<Item = (Slot, ConfirmedBlock)> + 'a> {
+    ) -> Result<impl Iterator<Item=(Slot, ConfirmedBlock)> + 'a> {
         trace!(
             "LedgerStorage::get_confirmed_blocks_with_data request received: {:?}",
             slots
@@ -620,7 +633,7 @@ impl LedgerStorage {
     }
 
     /// Fetches a vector of block entries via a multirow fetch
-    pub async fn get_entries(&self, slot: Slot) -> Result<impl Iterator<Item = EntrySummary>> {
+    pub async fn get_entries(&self, slot: Slot) -> Result<impl Iterator<Item=EntrySummary>> {
         trace!(
             "LedgerStorage::get_block_entries request received: {:?}",
             slot
@@ -930,7 +943,7 @@ impl LedgerStorage {
                 entries: vec![],
             },
         )
-        .await
+            .await
     }
 
     pub async fn upload_confirmed_block_with_entries(
@@ -1027,7 +1040,7 @@ impl LedgerStorage {
                     "tx-by-addr",
                     &tx_by_addr_cells,
                 )
-                .await
+                    .await
             }));
         }
 

@@ -495,6 +495,55 @@ impl<F: FnMut(Request<()>) -> InterceptedRequestResult> BigTable<F> {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    //noinspection ALL
+    //noinspection MissingFeatures
+    pub async fn row_key_exists_many(
+        &mut self,
+        table_name: &str,
+        row_keys: &[RowKey],
+    ) -> Result<Vec<RowKey>> {
+        self.refresh_access_token();
+
+        let response = self
+            .read_rows(
+                table_name,
+                ReadRowsRequest {
+                    table_name: format!("{}{}", self.table_prefix, table_name),
+                    app_profile_id: self.app_profile_id.clone(),
+                    rows_limit: row_keys.len() as i64,
+                    rows: Some(RowSet {
+                        row_keys: row_keys.iter().map(|k| k.as_bytes().to_vec()).collect(),
+                        row_ranges: vec![],
+                    }),
+                    filter: Some(RowFilter {
+                        filter: Some(row_filter::Filter::Chain(row_filter::Chain {
+                            filters: vec![
+                                RowFilter {
+                                    // Return minimal number of cells
+                                    filter: Some(row_filter::Filter::CellsPerRowLimitFilter(1)),
+                                },
+                                RowFilter {
+                                    // Only return the latest version of each cell
+                                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
+                                },
+                                RowFilter {
+                                    // Strip the cell values
+                                    filter: Some(row_filter::Filter::StripValueTransformer(true)),
+                                },
+                            ],
+                        })),
+                    }),
+                    request_stats_view: 0,
+                    reversed: false,
+                },
+            )
+            .await?
+            .into_inner();
+
+        let rows = self.decode_read_rows_response(response).await?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
     /// Check whether a row key exists in a `table`
     pub async fn row_key_exists(&mut self, table_name: &str, row_key: RowKey) -> Result<bool> {
         self.refresh_access_token();
