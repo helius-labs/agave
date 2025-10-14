@@ -555,6 +555,10 @@ fn has_reached_end_of_slot(reached_max_poh_height: bool, bank: &Bank) -> bool {
     reached_max_poh_height || bank.is_complete()
 }
 
+fn has_reached_end_of_slot(reached_max_poh_height: bool, bank: &Bank) -> bool {
+    reached_max_poh_height || bank.is_complete()
+}
+
 #[cfg(test)]
 mod tests {
     use {
