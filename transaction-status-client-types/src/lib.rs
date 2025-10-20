@@ -226,6 +226,98 @@ impl From<&MessageAddressTableLookup> for UiAddressTableLookup {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UiTransactionError(TransactionError);
+
+impl fmt::Display for UiTransactionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for UiTransactionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+impl From<TransactionError> for UiTransactionError {
+    fn from(value: TransactionError) -> Self {
+        UiTransactionError(value)
+    }
+}
+
+impl From<UiTransactionError> for TransactionError {
+    fn from(value: UiTransactionError) -> Self {
+        value.0
+    }
+}
+
+impl SerializeTrait for UiTransactionError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match &self.0 {
+            TransactionError::InstructionError(outer_instruction_index, err) => {
+                let mut state = serializer.serialize_tuple_variant(
+                    "TransactionError",
+                    8,
+                    "InstructionError",
+                    2,
+                )?;
+                state.serialize_field(outer_instruction_index)?;
+                state.serialize_field(err)?;
+                state.end()
+            }
+            err => TransactionError::serialize(err, serializer),
+        }
+    }
+}
+
+impl<'de> DeserializeTrait<'de> for UiTransactionError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if let Some(obj) = value.as_object() {
+            if let Some(arr) = obj.get("InstructionError").and_then(|v| v.as_array()) {
+                let outer_instruction_index: u8 = arr
+                    .first()
+                    .ok_or_else(|| {
+                        DeserializeError::invalid_length(0, &"Expected the first element to exist")
+                    })?
+                    .as_u64()
+                    .ok_or_else(|| {
+                        DeserializeError::custom("Expected the first element to be a u64")
+                    })? as u8;
+                let instruction_error = arr.get(1).ok_or_else(|| {
+                    DeserializeError::invalid_length(1, &"Expected there to be at least 2 elements")
+                })?;
+
+                // Handle SDK version compatibility: try deserializing as-is, but if it fails
+                // and the error is BorshIoError string, normalize to object format for v2.3 SDKs
+                let err: InstructionError = from_value(instruction_error.clone())
+                    .or_else(|e| {
+                        if instruction_error.as_str() == Some("BorshIoError") {
+                            from_value(serde_json::json!({"BorshIoError": ""}))
+                        } else {
+                            Err(e)
+                        }
+                    })
+                    .map_err(|e| DeserializeError::custom(e.to_string()))?;
+                return Ok(UiTransactionError(TransactionError::InstructionError(
+                    outer_instruction_index,
+                    err,
+                )));
+            }
+        }
+        let err = TransactionError::deserialize(value).map_err(de::Error::custom)?;
+        Ok(UiTransactionError(err))
+    }
+}
+
 /// A duplicate representation of TransactionStatusMeta with `err` field
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -811,5 +903,76 @@ mod test {
             }\
         }";
         test_serde::<UiTransactionTokenBalance>(json_input, expected_json_output);
+    }
+
+    #[test_case(
+        TransactionError::InstructionError (42, InstructionError::Custom(0xdeadbeef)),
+        json!({"InstructionError": [
+            42,
+            { "Custom": 0xdeadbeef_u32 },
+        ]});
+        "`InstructionError`"
+    )]
+    #[test_case(TransactionError::InsufficientFundsForRent {
+        account_index: 42,
+    }, json!({"InsufficientFundsForRent": {
+        "account_index": 42,
+    }}); "Struct variant error")]
+    #[test_case(TransactionError::DuplicateInstruction(42), json!({ "DuplicateInstruction": 42 }); "Single-value tuple variant error")]
+    #[test_case(TransactionError::InsufficientFundsForFee, json!("InsufficientFundsForFee"); "Named variant error")]
+    fn test_serialize_ui_transaction_error(
+        transaction_error: TransactionError,
+        expected_serialization: Value,
+    ) {
+        let actual_serialization = to_value(UiTransactionError(transaction_error))
+            .expect("Failed to serialize `UiTransactionError");
+        assert_eq!(actual_serialization, expected_serialization);
+    }
+
+    #[test_case(
+        TransactionError::InstructionError (42, InstructionError::Custom(0xdeadbeef)),
+        json!({"InstructionError": [
+            42,
+            { "Custom": 0xdeadbeef_u32 },
+        ]});
+        "`InstructionError`"
+    )]
+    #[test_case(TransactionError::InsufficientFundsForRent {
+        account_index: 42,
+    }, json!({"InsufficientFundsForRent": {
+        "account_index": 42,
+    }}); "Struct variant error")]
+    #[test_case(TransactionError::DuplicateInstruction(42), json!({ "DuplicateInstruction": 42 }); "Single-value tuple variant error")]
+    #[test_case(TransactionError::InsufficientFundsForFee, json!("InsufficientFundsForFee"); "Named variant error")]
+    fn test_deserialize_ui_transaction_error(
+        expected_transaction_error: TransactionError,
+        serialized_value: Value,
+    ) {
+        let UiTransactionError(actual_transaction_error) =
+            from_value::<UiTransactionError>(serialized_value)
+                .expect("Failed to deserialize `UiTransactionError");
+        assert_eq!(actual_transaction_error, expected_transaction_error);
+    }
+
+    #[test]
+    fn test_deserialize_instruction_error_string_format() {
+        // Test that we can deserialize InstructionError when serialized as a string
+        // This handles compatibility across SDK versions where the same error may be
+        // a unit variant in one version and newtype variant in another
+        let error_json = json!({"InstructionError": [0, "BorshIoError"]});
+        let result = from_value::<UiTransactionError>(error_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize BorshIoError from string: {:?}",
+            result.err()
+        );
+
+        match result.unwrap().0 {
+            TransactionError::InstructionError(idx, _) => {
+                assert_eq!(idx, 0);
+                // Successfully deserialized InstructionError from BorshIoError string
+            }
+            other => panic!("Expected InstructionError, got: {:?}", other),
+        }
     }
 }
