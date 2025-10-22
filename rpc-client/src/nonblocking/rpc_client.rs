@@ -19,6 +19,7 @@ use {
         },
         rpc_sender::*,
     },
+    anyhow,
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::serialize,
     futures::join,
