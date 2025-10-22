@@ -4734,8 +4734,13 @@ impl RpcClient {
             .send(request, params)
             .await
             .map_err(|err| err.into_with_request(request))?;
-        serde_json::from_value(response)
-            .map_err(|err| ClientError::new_with_request(err.into(), request))
+        let cloned = response.clone();
+        serde_json::from_value(response).map_err(|err| {
+            ClientError::new_with_request(
+                anyhow::anyhow!("Error: {}, Response: {}", err, cloned),
+                request,
+            )
+        })
     }
 
     pub fn get_transport_stats(&self) -> RpcTransportStats {
