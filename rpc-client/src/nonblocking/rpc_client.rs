@@ -4738,7 +4738,12 @@ impl RpcClient {
         let cloned = response.clone();
         serde_json::from_value(response).map_err(|err| {
             ClientError::new_with_request(
-                anyhow::anyhow!("Error: {}, Response: {}", err, cloned),
+                ClientErrorKind::Custom(format!(
+                    "Error: {}, Response: {}",
+                    err,
+                    serde_json::to_string(&cloned)
+                        .unwrap_or("failed to serialize response".to_string())
+                )),
                 request,
             )
         })
