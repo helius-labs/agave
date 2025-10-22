@@ -4730,11 +4730,12 @@ impl RpcClient {
     {
         assert!(params.is_array() || params.is_null());
 
-        let response = self
-            .sender
-            .send(request, params)
-            .await
-            .map_err(|err| err.into_with_request(request))?;
+        let response = self.sender.send(request, params).await.map_err(|err| {
+            ClientError::new_with_request(
+                ClientErrorKind::Custom("Sender.send failed".to_string()),
+                request,
+            )
+        })?;
         let cloned = response.clone();
         serde_json::from_value(response).map_err(|err| {
             ClientError::new_with_request(
