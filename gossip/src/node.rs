@@ -299,7 +299,13 @@ impl Node {
             public_tvu_addr.unwrap_or_else(|| SocketAddr::new(advertised_ip, tvu_port)),
         )
         .unwrap();
-        info.set_tvu(QUIC, (advertised_ip, tvu_quic_port)).unwrap();
+        info.set_tvu(
+            QUIC,
+            public_tvu_addr
+                .and_then(|addr| crate::contact_info::get_quic_socket(&addr).ok())
+                .unwrap_or_else(|| SocketAddr::new(advertised_ip, tvu_quic_port)),
+        )
+        .unwrap();
         info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(advertised_ip, tpu_port)))
             .unwrap();
         info.set_tpu_forwards(
@@ -476,7 +482,7 @@ mod multihoming {
             // update tvu ingress advertised socket
             let tvu_ingress_address = self.addresses.tvu[interface_index];
             cluster_info
-                .set_tvu_socket(tvu_ingress_address)
+                .set_tvu_socket(crate::contact_info::Protocol::UDP, tvu_ingress_address)
                 .map_err(|e| e.to_string())?;
 
             // tpu_quic

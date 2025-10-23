@@ -778,17 +778,32 @@ impl AdminRpc for AdminRpcImpl {
                     );
                     jsonrpc_core::error::Error::internal_error()
                 })?;
+            let public_tvu_quic_addr =
+                solana_gossip::contact_info::get_quic_socket(&public_tvu_addr).map_err(|err| {
+                    error!("Failed to get public TVU QUIC address from {public_tvu_addr}: {err}");
+                    jsonrpc_core::error::Error::internal_error()
+                })?;
             post_init
                 .cluster_info
-                .set_tvu_socket(public_tvu_addr)
+                .set_tvu_socket(Protocol::UDP, public_tvu_addr)
                 .map_err(|err| {
                     error!("Failed to set public TVU address to {public_tvu_addr}: {err}");
                     jsonrpc_core::error::Error::internal_error()
                 })?;
+            post_init
+                .cluster_info
+                .set_tvu_socket(Protocol::QUIC, public_tvu_quic_addr)
+                .map_err(|err| {
+                    error!(
+                        "Failed to set public TVU QUIC address to {public_tvu_quic_addr}: {err}"
+                    );
+                    jsonrpc_core::error::Error::internal_error()
+                })?;
             let my_contact_info = post_init.cluster_info.my_contact_info();
             warn!(
-                "Public TVU addresses set to {:?}",
+                "Public TVU addresses set to {:?} (udp) and {:?} (quic)",
                 my_contact_info.tvu(Protocol::UDP),
+                my_contact_info.tvu(Protocol::QUIC),
             );
             Ok(())
         })
