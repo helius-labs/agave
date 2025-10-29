@@ -24,6 +24,7 @@ use {
             Arc,
         },
         thread::{self, Builder, JoinHandle},
+        time::{Duration, Instant},
     },
     stream_cancel::{Trigger, Tripwire},
     thiserror::Error,
@@ -36,6 +37,11 @@ pub const DEFAULT_QUEUE_CAPACITY_ITEMS: usize = 10_000_000;
 pub const DEFAULT_TEST_QUEUE_CAPACITY_ITEMS: usize = 100;
 pub const DEFAULT_QUEUE_CAPACITY_BYTES: usize = 256 * 1024 * 1024;
 pub const DEFAULT_WORKER_THREADS: usize = 1;
+
+// Connection limits to prevent resource exhaustion
+pub const MAX_SUBSCRIPTIONS_PER_CONNECTION: usize = 100;
+pub const CONNECTION_IDLE_TIMEOUT_SECS: u64 = 300; // 5 minutes
+pub const CONNECTION_MAX_AGE_SECS: u64 = 3600; // 1 hour
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PubSubConfig {
@@ -383,6 +389,10 @@ async fn handle_connection(
     let mut broadcast_receiver = subscription_control.broadcast_receiver();
     let mut data = Vec::new();
     let current_subscriptions = Arc::new(DashMap::new());
+    
+    // Track connection age and activity for timeouts
+    let connection_start = Instant::now();
+    let mut last_activity = Instant::now();
 
     let mut json_rpc_handler = IoHandler::new();
     let rpc_impl = RpcSolPubSubImpl::new(
@@ -400,6 +410,27 @@ async fn handle_connection(
             let receive_future = receiver.receive_data(&mut data);
             pin!(receive_future);
             loop {
+                // Check connection age and idle timeouts
+                let connection_age = connection_start.elapsed();
+                let idle_duration = last_activity.elapsed();
+                
+                if connection_age.as_secs() > CONNECTION_MAX_AGE_SECS {
+                    warn!("disconnecting websocket client: connection max age ({} seconds) exceeded", CONNECTION_MAX_AGE_SECS);
+                    return Ok(());
+                }
+                
+                if idle_duration.as_secs() > CONNECTION_IDLE_TIMEOUT_SECS {
+                    warn!("disconnecting websocket client: idle timeout ({} seconds) exceeded", CONNECTION_IDLE_TIMEOUT_SECS);
+                    return Ok(());
+                }
+                
+                // Check subscription count limit
+                if current_subscriptions.len() > MAX_SUBSCRIPTIONS_PER_CONNECTION {
+                    warn!("disconnecting websocket client: subscription limit ({}) exceeded ({})", 
+                          MAX_SUBSCRIPTIONS_PER_CONNECTION, current_subscriptions.len());
+                    return Ok(());
+                }
+                
                 select! {
                     biased; // See [prioritization] note below.
 
@@ -408,12 +439,15 @@ async fn handle_connection(
                     // processing received messages over sending messages. This ensures the timely
                     // processing of new subscriptions and time-sensitive opcodes like `PING`.
                     result = &mut receive_future => match result {
-                        Ok(_) => break,
+                        Ok(_) => {
+                            last_activity = Instant::now();
+                            break;
+                        }
                         Err(soketto::connection::Error::Closed) => return Ok(()),
                         Err(err) => return Err(err.into()),
                     },
                     result = broadcast_receiver.recv() => {
-
+                        last_activity = Instant::now();
                         // In both possible error cases (closed or lagged) we disconnect the client.
                         if let Some(json) = broadcast_handler.handle(result?)? {
                             sender.send_text(&*json).await?;
@@ -434,6 +468,7 @@ async fn handle_connection(
         };
 
         if let Some(response) = json_rpc_handler.handle_request(data_str).await {
+            last_activity = Instant::now();
             sender.send_text(&response).await?;
         }
         data.clear();
