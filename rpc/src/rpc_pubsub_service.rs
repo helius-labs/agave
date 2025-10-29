@@ -24,7 +24,7 @@ use {
             Arc,
         },
         thread::{self, Builder, JoinHandle},
-        time::{Duration, Instant},
+        time::Instant,
     },
     stream_cancel::{Trigger, Tripwire},
     thiserror::Error,
@@ -401,7 +401,7 @@ async fn handle_connection(
         Arc::clone(&current_subscriptions),
     );
     json_rpc_handler.extend_with(rpc_impl.to_delegate());
-    let broadcast_handler = BroadcastHandler::new(current_subscriptions);
+    let broadcast_handler = BroadcastHandler::new(current_subscriptions.clone());
     loop {
         // Extra block for dropping `receive_future`.
         {
