@@ -638,7 +638,7 @@ impl RpcSubscriptions {
                     let pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(notification_threads.get())
                         .thread_name(|i| format!("solRpcNotify{i:02}"))
-                        .stack_size(12 * 1024 * 1024) // 12MB stack - dependency tracking causes deep call stacks
+                        .stack_size(12 * 1024 * 1024) // 12MB stack 
                         .build()
                         .unwrap();
                     pool.install(|| {
