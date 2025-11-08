@@ -25,15 +25,15 @@ use {
     },
     solana_epoch_schedule::MINIMUM_SLOTS_PER_EPOCH,
     solana_faucet::faucet::{self, FAUCET_PORT},
-    solana_genesis_utils::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
     solana_hash::Hash,
     solana_net_utils::{MINIMUM_VALIDATOR_PORT_RANGE_WIDTH, VALIDATOR_PORT_RANGE},
     solana_quic_definitions::QUIC_PORT_OFFSET,
     solana_send_transaction_service::send_transaction_service::{self},
     solana_streamer::quic::{
-        DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE, DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER,
-        DEFAULT_MAX_STAKED_CONNECTIONS, DEFAULT_MAX_STREAMS_PER_MS,
-        DEFAULT_MAX_UNSTAKED_CONNECTIONS, DEFAULT_QUIC_ENDPOINTS,
+        DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE,
+        DEFAULT_MAX_QUIC_CONNECTIONS_PER_STAKED_PEER,
+        DEFAULT_MAX_QUIC_CONNECTIONS_PER_UNSTAKED_PEER, DEFAULT_MAX_STAKED_CONNECTIONS,
+        DEFAULT_MAX_STREAMS_PER_MS, DEFAULT_MAX_UNSTAKED_CONNECTIONS, DEFAULT_QUIC_ENDPOINTS,
     },
     solana_tpu_client::tpu_client::{DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_VOTE_USE_QUIC},
     std::{cmp::Ordering, path::PathBuf, str::FromStr},
@@ -279,7 +279,6 @@ pub struct DefaultArgs {
     pub dynamic_port_range: String,
     pub ledger_path: String,
 
-    pub genesis_archive_unpacked_size: String,
     pub tower_storage: String,
     pub send_transaction_service_config: send_transaction_service::Config,
 
@@ -306,7 +305,8 @@ pub struct DefaultArgs {
     pub accounts_shrink_ratio: String,
     pub tpu_connection_pool_size: String,
 
-    pub tpu_max_connections_per_peer: String,
+    pub tpu_max_connections_per_unstaked_peer: String,
+    pub tpu_max_connections_per_staked_peer: String,
     pub tpu_max_connections_per_ipaddr_per_minute: String,
     pub tpu_max_staked_connections: String,
     pub tpu_max_unstaked_connections: String,
@@ -332,7 +332,6 @@ impl DefaultArgs {
             ledger_path: "ledger".to_string(),
             dynamic_port_range: format!("{}-{}", VALIDATOR_PORT_RANGE.0, VALIDATOR_PORT_RANGE.1),
             maximum_local_snapshot_age: "2500".to_string(),
-            genesis_archive_unpacked_size: MAX_GENESIS_ARCHIVE_UNPACKED_SIZE.to_string(),
             tower_storage: "file".to_string(),
             send_transaction_service_config: send_transaction_service::Config::default(),
             maximum_full_snapshot_archives_to_retain: DEFAULT_MAX_FULL_SNAPSHOT_ARCHIVES_TO_RETAIN
@@ -363,7 +362,10 @@ impl DefaultArgs {
             tpu_max_connections_per_ipaddr_per_minute:
                 DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE.to_string(),
             vote_use_quic: DEFAULT_VOTE_USE_QUIC.to_string(),
-            tpu_max_connections_per_peer: DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER.to_string(),
+            tpu_max_connections_per_unstaked_peer: DEFAULT_MAX_QUIC_CONNECTIONS_PER_UNSTAKED_PEER
+                .to_string(),
+            tpu_max_connections_per_staked_peer: DEFAULT_MAX_QUIC_CONNECTIONS_PER_STAKED_PEER
+                .to_string(),
             tpu_max_staked_connections: DEFAULT_MAX_STAKED_CONNECTIONS.to_string(),
             tpu_max_unstaked_connections: DEFAULT_MAX_UNSTAKED_CONNECTIONS.to_string(),
             tpu_max_fwd_staked_connections: DEFAULT_MAX_STAKED_CONNECTIONS
@@ -863,6 +865,12 @@ pub fn test_app<'a>(version: &'a str, default_args: &'a DefaultTestArgs) -> App<
                 .takes_value(true)
                 .multiple(true)
                 .help("Specify the configuration file for the Geyser plugin."),
+        )
+        .arg(
+            Arg::with_name("enable_scheduler_bindings")
+                .long("enable-scheduler-bindings")
+                .takes_value(false)
+                .help("Enables external processes to connect and manage block production"),
         )
         .arg(
             Arg::with_name("deactivate_feature")

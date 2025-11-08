@@ -70,19 +70,14 @@ impl fmt::Display for UiTransactionEncoding {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TransactionDetails {
+    #[default]
     Full,
     Signatures,
     None,
     Accounts,
-}
-
-impl Default for TransactionDetails {
-    fn default() -> Self {
-        Self::Full
-    }
 }
 
 #[derive(Error, Debug, PartialEq, Eq, Clone)]

@@ -12,7 +12,8 @@ use {
     solana_core::{
         admin_rpc_post_init::AdminRpcRequestMetadataPostInit,
         banking_stage::{
-            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
+            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingControlMsg,
+            BankingStage,
         },
         consensus::{tower_storage::TowerStorage, Tower},
         repair::repair_service,
@@ -264,6 +265,13 @@ pub trait AdminRpc {
         &self,
         meta: Self::Metadata,
         public_tpu_forwards_addr: SocketAddr,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "setPublicTvuAddress")]
+    fn set_public_tvu_address(
+        &self,
+        meta: Self::Metadata,
+        public_tvu_addr: SocketAddr,
     ) -> Result<()>;
 
     #[rpc(meta, name = "manageBlockProduction")]
@@ -756,6 +764,42 @@ impl AdminRpc for AdminRpcImpl {
         })
     }
 
+    fn set_public_tvu_address(
+        &self,
+        meta: Self::Metadata,
+        public_tvu_addr: SocketAddr,
+    ) -> Result<()> {
+        debug!("set_public_tvu_address rpc request received: {public_tvu_addr}");
+
+        meta.with_post_init(|post_init| {
+            post_init
+                .cluster_info
+                .my_contact_info()
+                .tvu(Protocol::UDP)
+                .ok_or_else(|| {
+                    error!(
+                        "The public TVU address isn't being published. The node is likely in \
+                         repair mode. See help for --restricted-repair-only-mode for more \
+                         information."
+                    );
+                    jsonrpc_core::error::Error::internal_error()
+                })?;
+            post_init
+                .cluster_info
+                .set_tvu_socket(public_tvu_addr)
+                .map_err(|err| {
+                    error!("Failed to set public TVU address to {public_tvu_addr}: {err}");
+                    jsonrpc_core::error::Error::internal_error()
+                })?;
+            let my_contact_info = post_init.cluster_info.my_contact_info();
+            warn!(
+                "Public TVU addresses set to {:?}",
+                my_contact_info.tvu(Protocol::UDP),
+            );
+            Ok(())
+        })
+    }
+
     fn manage_block_production(
         &self,
         meta: Self::Metadata,
@@ -779,22 +823,19 @@ impl AdminRpc for AdminRpcImpl {
         }
 
         meta.with_post_init(|post_init| {
-            let mut banking_stage = post_init.banking_stage.write().unwrap();
-            let Some(banking_stage) = banking_stage.as_mut() else {
-                error!("banking stage is not initialized");
-                return Err(jsonrpc_core::error::Error::internal_error());
-            };
-
-            banking_stage
-                .spawn_internal_threads(
+            if post_init
+                .banking_control_sender
+                .try_send(BankingControlMsg::Internal {
                     block_production_method,
                     num_workers,
-                    SchedulerConfig { scheduler_pacing },
-                )
-                .map_err(|err| {
-                    error!("Failed to spawn new non-vote threads: {err:?}");
-                    jsonrpc_core::error::Error::internal_error()
-                })?;
+                    config: SchedulerConfig { scheduler_pacing },
+                })
+                .is_err()
+            {
+                error!("Banking stage already switching schedulers");
+
+                return Err(jsonrpc_core::error::Error::internal_error());
+            }
 
             Ok(())
         })
@@ -1023,6 +1064,7 @@ mod tests {
             Account as TokenAccount, AccountState as TokenAccountState, Mint,
         },
         std::{collections::HashSet, fs::remove_dir_all, sync::atomic::AtomicBool},
+        tokio::sync::mpsc,
     };
 
     #[derive(Default)]
@@ -1085,7 +1127,7 @@ mod tests {
                         solana_core::cluster_slots_service::cluster_slots::ClusterSlots::default_for_tests(),
                     ),
                     node: None,
-                    banking_stage: Arc::new(RwLock::new(None)),
+                    banking_control_sender: mpsc::channel(1).0,
                 }))),
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
                 rpc_to_plugin_manager_sender: None,
