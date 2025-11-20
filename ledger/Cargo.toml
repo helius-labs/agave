@@ -29,6 +29,8 @@ agave-unstable-api = []
 agave-feature-set = { workspace = true }
 agave-reserved-account-keys = { workspace = true }
 anyhow = { workspace = true }
+clickhouse-sink = { path = "../clickhouse-sink" }
+serde_json = { workspace = true }
 assert_matches = { workspace = true }
 bincode = { workspace = true }
 bitflags = { workspace = true, features = ["serde"] }

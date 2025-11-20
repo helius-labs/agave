@@ -284,6 +284,35 @@ impl Consumer {
             })
             .collect();
 
+        // Emit tx_replay_start events for ClickHouse latency tracking (leader path)
+        let replay_start_timestamp_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+        let tx_count = batch.sanitized_transactions().len();
+        info!(
+            "TESTING: BankingStage emitting tx_replay_start for {} transactions in slot {}",
+            tx_count,
+            bank.slot()
+        );
+        if tx_count > 0 {}
+        for tx in batch.sanitized_transactions() {
+            let metadata = serde_json::json!({
+                "slot": bank.slot(),
+                "tx_sig": tx.signature().to_string(),
+                "path": "leader",
+            });
+            let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "tx_replay_start".to_string(),
+                slot: bank.slot(),
+                timestamp_us: replay_start_timestamp_us,
+                metadata,
+            };
+            clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+                event,
+            ));
+        }
+
         let (load_and_execute_transactions_output, load_execute_us) = measure_us!(bank
             .load_and_execute_transactions(
                 batch,
@@ -301,6 +330,35 @@ impl Consumer {
                 }
             ));
         execute_and_commit_timings.load_execute_us = load_execute_us;
+
+        // Emit tx_replay_complete events for ClickHouse latency tracking (leader path)
+        let replay_complete_timestamp_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+        if tx_count > 0 {
+            info!(
+                "TESTING: BankingStage emitting tx_replay_complete for {} transactions in slot {}",
+                tx_count,
+                bank.slot()
+            );
+        }
+        for tx in batch.sanitized_transactions() {
+            let metadata = serde_json::json!({
+                "slot": bank.slot(),
+                "tx_sig": tx.signature().to_string(),
+                "path": "leader",
+            });
+            let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "tx_replay_complete".to_string(),
+                slot: bank.slot(),
+                timestamp_us: replay_complete_timestamp_us,
+                metadata,
+            };
+            clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+                event,
+            ));
+        }
 
         let LoadAndExecuteTransactionsOutput {
             processing_results,

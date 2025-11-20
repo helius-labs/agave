@@ -131,7 +131,7 @@ impl TableBatcher {
 
     pub async fn maybe_flush(&mut self, client: &Client) {
         if self.agave_events.batch.len() >= self.desired_batch_size
-            || self.agave_events.last_flush.elapsed() >= self.flush_interval
+            || (self.agave_events.batch.len() > 0 && self.agave_events.last_flush.elapsed() >= self.flush_interval)
         {
             flush_rows::<AgaveEvent>(&client, std::mem::take(&mut self.agave_events.batch), "agave_events").await;
             self.agave_events.last_flush = Instant::now();

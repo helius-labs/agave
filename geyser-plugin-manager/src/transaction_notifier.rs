@@ -35,6 +35,24 @@ impl TransactionNotifier for TransactionNotifierImpl {
         transaction_status_meta: &TransactionStatusMeta,
         transaction: &VersionedTransaction,
     ) {
+        // Emit geyser_notified event for ClickHouse latency tracking
+        let geyser_timestamp_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+        let metadata = serde_json::json!({
+            "slot": slot,
+            "tx_sig": signature.to_string(),
+            "is_vote": is_vote,
+        });
+        let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+            event_type: "geyser_notified".to_string(),
+            slot,
+            timestamp_us: geyser_timestamp_us,
+            metadata,
+        };
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
+
         let mut measure = Measure::start("geyser-plugin-notify_plugins_of_transaction_info");
         let transaction_log_info = Self::build_replica_transaction_info(
             index,

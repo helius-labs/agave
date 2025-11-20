@@ -68,11 +68,33 @@ impl CompletedDataSetsService {
         let handle_completed_data_set_info = |completed_data_set_info| {
             let CompletedDataSetInfo { slot, indices } = completed_data_set_info;
             info!("TESTING: CompletedDataSetsService processing completed data set for slot {}", slot);
-            match blockstore.get_entries_in_data_block(slot, indices, /*slot_meta:*/ None) {
+            match blockstore.get_entries_in_data_block(slot, indices.clone(), /*slot_meta:*/ None) {
                 Ok(entries) => {
                     let transactions = Self::get_transaction_signatures(entries);
                     if !transactions.is_empty() {
                         info!("TESTING: CompletedDataSetsService notifying {} transactions for slot {}", transactions.len(), slot);
+
+                        // Emit tx_extracted events for ClickHouse latency tracking
+                        let timestamp_us = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros() as u64;
+                        for tx_sig in &transactions {
+                            let metadata = serde_json::json!({
+                                "slot": slot,
+                                "tx_sig": tx_sig.to_string(),
+                                "shred_range_start": indices.start,
+                                "shred_range_end": indices.end,
+                            });
+                            let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                                event_type: "tx_extracted".to_string(),
+                                slot,
+                                timestamp_us,
+                                metadata,
+                            };
+                            clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
+                        }
+
                         rpc_subscriptions.notify_signatures_received((slot, transactions));
                     }
                 }
