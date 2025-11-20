@@ -289,7 +289,6 @@ impl Consumer {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_micros() as u64;
-        let tx_count = batch.sanitized_transactions().len();
         for tx in batch.sanitized_transactions() {
             let metadata = serde_json::json!({
                 "slot": bank.slot(),
