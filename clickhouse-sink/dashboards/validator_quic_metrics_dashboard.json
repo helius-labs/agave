@@ -1,0 +1,1980 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "µs"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 0,
+                "y": 0
+            },
+            "id": 1,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  avg(toUInt64(data.path.rtt_micros)) AS avg_rtt\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.rtt_micros IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})",
+                    "refId": "A"
+                }
+            ],
+            "title": "Avg RTT",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 1
+                            },
+                            {
+                                "color": "red",
+                                "value": 5
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 4,
+                "y": 0
+            },
+            "id": 2,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  sum(toUInt64(data.path.lost_packets)) AS total_lost_packets\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.lost_packets IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total Lost Packets",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 1
+                            },
+                            {
+                                "color": "red",
+                                "value": 10
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 8,
+                "y": 0
+            },
+            "id": 3,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  sum(toUInt64(data.path.congestion_events)) AS total_congestion_events\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.congestion_events IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total Congestion Events",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "blue",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 12,
+                "y": 0
+            },
+            "id": 4,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  sum(toUInt64(data.udp_tx.bytes)) AS total_tx_bytes\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.udp_tx.bytes IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total TX Bytes",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "purple",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 16,
+                "y": 0
+            },
+            "id": 5,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  sum(toUInt64(data.udp_rx.bytes)) AS total_rx_bytes\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.udp_rx.bytes IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total RX Bytes",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 4,
+                "x": 20,
+                "y": 0
+            },
+            "id": 6,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  avg(toUInt64(data.path.current_mtu)) AS avg_mtu\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.current_mtu IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})",
+                    "refId": "A"
+                }
+            ],
+            "title": "Avg MTU",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "µs"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 4
+            },
+            "id": 7,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max", "min"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  quantile(0.5)(toUInt64(data.path.rtt_micros)) AS p50,\n  quantile(0.95)(toUInt64(data.path.rtt_micros)) AS p95,\n  quantile(0.99)(toUInt64(data.path.rtt_micros)) AS p99\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.rtt_micros IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "RTT Percentiles Over Time",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 4
+            },
+            "id": 8,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.path.lost_packets)) AS lost_packets,\n  sum(toUInt64(data.path.sent_packets)) AS sent_packets\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.lost_packets IS NOT NULL\n  AND data.path.sent_packets IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Packets: Lost vs Sent",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "Bps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 12
+            },
+            "id": 9,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.udp_tx.bytes)) / $__interval_s AS tx_bytes_per_sec,\n  sum(toUInt64(data.udp_rx.bytes)) / $__interval_s AS rx_bytes_per_sec\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.udp_tx.bytes IS NOT NULL\n  AND data.udp_rx.bytes IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "UDP Throughput (Bytes/sec)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 12
+            },
+            "id": 10,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.udp_tx.datagrams)) AS tx_datagrams,\n  sum(toUInt64(data.udp_rx.datagrams)) AS rx_datagrams\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.udp_tx.datagrams IS NOT NULL\n  AND data.udp_rx.datagrams IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "UDP Datagrams (TX vs RX)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 20
+            },
+            "id": 11,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.frame_tx.acks)) AS acks,\n  sum(toUInt64(data.frame_tx.ping)) AS ping,\n  sum(toUInt64(data.frame_tx.crypto)) AS crypto\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Frame TX (Top Types)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 20
+            },
+            "id": 12,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.frame_rx.acks)) AS acks,\n  sum(toUInt64(data.frame_rx.ping)) AS ping,\n  sum(toUInt64(data.frame_rx.crypto)) AS crypto\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Frame RX (Top Types)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 28
+            },
+            "id": 13,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.path.congestion_events)) AS congestion_events\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.congestion_events IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Congestion Events Over Time",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 28
+            },
+            "id": 14,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  avg(toUInt64(data.path.current_mtu)) AS avg_mtu,\n  max(toUInt64(data.path.current_mtu)) AS max_mtu,\n  min(toUInt64(data.path.current_mtu)) AS min_mtu\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.current_mtu IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "MTU Over Time",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 36
+            },
+            "id": 15,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  avg(toUInt64(data.path.cwnd)) AS avg_cwnd,\n  max(toUInt64(data.path.cwnd)) AS max_cwnd,\n  min(toUInt64(data.path.cwnd)) AS min_cwnd\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.cwnd IS NOT NULL\n  AND data.path.cwnd != '18446744073709551615'\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Congestion Window (CWND)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 36
+            },
+            "id": 16,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.path.lost_bytes)) AS lost_bytes\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.path.lost_bytes IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Lost Bytes Over Time",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 44
+            },
+            "id": 17,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.udp_tx.ios)) AS tx_ios,\n  sum(toUInt64(data.udp_rx.ios)) AS rx_ios\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND data.udp_tx.ios IS NOT NULL\n  AND data.udp_rx.ios IS NOT NULL\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "UDP I/O Operations (TX vs RX)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 44
+            },
+            "id": 18,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.path.black_holes_detected)) AS black_holes,\n  sum(toUInt64(data.path.lost_plpmtud_probes)) AS lost_probes,\n  sum(toUInt64(data.path.sent_plpmtud_probes)) AS sent_probes\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Path Issues (Black Holes & PLPMTUD Probes)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 52
+            },
+            "id": 19,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.frame_tx.connection_close)) AS connection_close,\n  sum(toUInt64(data.frame_tx.handshake_done)) AS handshake_done,\n  sum(toUInt64(data.frame_tx.new_connection_id)) AS new_connection_id,\n  sum(toUInt64(data.frame_tx.new_token)) AS new_token,\n  sum(toUInt64(data.frame_tx.immediate_ack)) AS immediate_ack\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Frame TX (Connection Management)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 52
+            },
+            "id": 20,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.frame_rx.connection_close)) AS connection_close,\n  sum(toUInt64(data.frame_rx.handshake_done)) AS handshake_done,\n  sum(toUInt64(data.frame_rx.new_connection_id)) AS new_connection_id,\n  sum(toUInt64(data.frame_rx.new_token)) AS new_token,\n  sum(toUInt64(data.frame_rx.immediate_ack)) AS immediate_ack\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Frame RX (Connection Management)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 60
+            },
+            "id": 21,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.frame_tx.stream)) AS stream,\n  sum(toUInt64(data.frame_tx.max_data)) AS max_data,\n  sum(toUInt64(data.frame_tx.max_stream_data)) AS max_stream_data,\n  sum(toUInt64(data.frame_tx.max_streams_bidi)) AS max_streams_bidi,\n  sum(toUInt64(data.frame_tx.max_streams_uni)) AS max_streams_uni\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Frame TX (Stream & Flow Control)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 60
+            },
+            "id": 22,
+            "options": {
+                "legend": {
+                    "calcs": ["sum"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(timestamp) AS time,\n  sum(toUInt64(data.frame_rx.stream)) AS stream,\n  sum(toUInt64(data.frame_rx.max_data)) AS max_data,\n  sum(toUInt64(data.frame_rx.max_stream_data)) AS max_stream_data,\n  sum(toUInt64(data.frame_rx.max_streams_bidi)) AS max_streams_bidi,\n  sum(toUInt64(data.frame_rx.max_streams_uni)) AS max_streams_uni\nFROM clickhouse_logs.validator_quic_metrics\nWHERE\n  $__timeFilter(timestamp)\n  AND toString(data.host) IN (${host:singlequote})\n  AND toString(data.staked) IN (${staked:singlequote})\n  AND toString(data.env) IN (${env:singlequote})\n  AND toString(data.identity) IN (${identity:singlequote})\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Frame RX (Stream & Flow Control)",
+            "type": "timeseries"
+        }
+    ],
+    "schemaVersion": 42,
+    "tags": ["quic", "validator", "network"],
+    "templating": {
+        "list": [
+            {
+                "current": {
+                    "selected": false,
+                    "text": "clickhouse-logs",
+                    "value": "clickhouse-logs"
+                },
+                "hide": 0,
+                "includeAll": false,
+                "label": "Data Source",
+                "multi": false,
+                "name": "datasource",
+                "options": [],
+                "query": "grafana-clickhouse-datasource",
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "type": "datasource"
+            },
+            {
+                "current": {
+                    "selected": true,
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.host) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.host IS NOT NULL ORDER BY toString(data.host)",
+                "hide": 0,
+                "includeAll": true,
+                "label": "Host",
+                "multi": true,
+                "name": "host",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.host) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.host IS NOT NULL ORDER BY toString(data.host)",
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "sort": 0,
+                "type": "query"
+            },
+            {
+                "current": {
+                    "selected": true,
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.staked) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.staked IS NOT NULL ORDER BY toString(data.staked)",
+                "hide": 0,
+                "includeAll": true,
+                "label": "Staked",
+                "multi": true,
+                "name": "staked",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.staked) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.staked IS NOT NULL ORDER BY toString(data.staked)",
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "sort": 0,
+                "type": "query"
+            },
+            {
+                "current": {
+                    "selected": true,
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.env) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.env IS NOT NULL ORDER BY toString(data.env)",
+                "hide": 0,
+                "includeAll": true,
+                "label": "Environment",
+                "multi": true,
+                "name": "env",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.env) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.env IS NOT NULL ORDER BY toString(data.env)",
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "sort": 0,
+                "type": "query"
+            },
+            {
+                "current": {
+                    "selected": true,
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.identity) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.identity IS NOT NULL ORDER BY toString(data.identity)",
+                "hide": 0,
+                "includeAll": true,
+                "label": "Identity",
+                "multi": true,
+                "name": "identity",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.identity) as __value FROM clickhouse_logs.validator_quic_metrics WHERE data.identity IS NOT NULL ORDER BY toString(data.identity)",
+                "refresh": 1,
+                "regex": "",
+                "skipUrlSync": false,
+                "sort": 0,
+                "type": "query"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Validator QUIC Metrics Dashboard",
+    "uid": "validator-quic-metrics-dashboard",
+    "version": 0
+}

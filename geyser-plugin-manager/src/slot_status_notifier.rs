@@ -49,13 +49,17 @@ impl SlotStatusNotifierImpl {
     }
 
     pub fn notify_slot_status(&self, slot: Slot, parent: Option<Slot>, slot_status: SlotStatus) {
+        info!("TESTING: Geyser notify_slot_status called for slot {} with status {:?}", slot, slot_status);
         let plugin_manager = self.plugin_manager.read().unwrap();
         if plugin_manager.plugins.is_empty() {
+            info!("TESTING: Geyser has no plugins loaded, skipping notification");
             return;
         }
 
+        info!("TESTING: Geyser notifying {} plugins for slot {} status {:?}", plugin_manager.plugins.len(), slot, slot_status);
         for plugin in plugin_manager.plugins.iter() {
             let mut measure = Measure::start("geyser-plugin-update-slot");
+            info!("TESTING: Geyser calling update_slot_status on plugin {} for slot {}", plugin.name(), slot);
             match plugin.update_slot_status(slot, parent, &slot_status) {
                 Err(err) => {
                     error!(
@@ -66,8 +70,8 @@ impl SlotStatusNotifierImpl {
                     )
                 }
                 Ok(_) => {
-                    trace!(
-                        "Successfully updated slot status at slot {} to plugin {}",
+                    info!(
+                        "TESTING: Geyser successfully updated slot status at slot {} to plugin {}",
                         slot,
                         plugin.name()
                     );

@@ -400,7 +400,7 @@ impl Shred {
     dispatch!(fn common_header(&self) -> &ShredCommonHeader);
     #[cfg(any(test, feature = "dev-context-only-utils"))]
     dispatch!(fn set_signature(&mut self, signature: Signature));
-    dispatch!(fn signed_data(&self) -> Result<SignedData, Error>);
+    dispatch!(fn signed_data(&self) -> Result<SignedData<'_>, Error>);
 
     dispatch!(pub fn chained_merkle_root(&self) -> Result<Hash, Error>);
     dispatch!(pub(crate) fn retransmitter_signature(&self) -> Result<Signature, Error>);

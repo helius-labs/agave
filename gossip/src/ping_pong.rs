@@ -93,7 +93,7 @@ impl<const N: usize> Signable for Ping<N> {
     }
 
     #[inline]
-    fn signable_data(&self) -> Cow<[u8]> {
+    fn signable_data(&self) -> Cow<'_, [u8]> {
         Cow::Borrowed(&self.token)
     }
 
@@ -139,7 +139,7 @@ impl Signable for Pong {
         self.from
     }
 
-    fn signable_data(&self) -> Cow<[u8]> {
+    fn signable_data(&self) -> Cow<'_, [u8]> {
         Cow::Owned(self.hash.as_ref().into())
     }
 

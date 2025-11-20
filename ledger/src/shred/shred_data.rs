@@ -30,7 +30,7 @@ impl ShredData {
     #[cfg(any(test, feature = "dev-context-only-utils"))]
     dispatch!(pub(super) fn set_signature(&mut self, signature: Signature));
 
-    pub(super) fn signed_data(&self) -> Result<SignedData, Error> {
+    pub(super) fn signed_data(&self) -> Result<SignedData<'_>, Error> {
         match self {
             Self::Legacy(shred) => Ok(SignedData::Chunk(shred.signed_data()?)),
             Self::Merkle(shred) => Ok(SignedData::MerkleRoot(shred.signed_data()?)),

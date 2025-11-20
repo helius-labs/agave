@@ -156,6 +156,7 @@ impl From<Stakes<StakeAccount>> for SerdeStakeAccountsToStakeFormat {
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct SerdeStakesToDelegationFormat {
     vote_accounts: VoteAccounts,
     stake_delegations: SerdeStakeMapToDelegationFormat,
@@ -185,6 +186,7 @@ struct SerdeStakeAccountsToStakeFormat {
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
+#[allow(dead_code)]
 struct SerdeStakeMapToDelegationFormat(ImHashMap<Pubkey, Stake>);
 impl Serialize for SerdeStakeMapToDelegationFormat {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

@@ -76,6 +76,7 @@ struct SecondaryIndexStats {
 }
 
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct DashMapSecondaryIndexEntry {
     account_keys: DashMap<Pubkey, ()>,
 }

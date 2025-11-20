@@ -41,12 +41,15 @@ impl RpcCompletedSlotsService {
                         break;
                     }
                     Ok(slots) => {
+                        info!("TESTING: RpcCompletedSlotsService received {} completed slots", slots.len());
                         for slot in slots {
+                            info!("TESTING: RpcCompletedSlotsService notifying slot {} completed", slot);
                             rpc_subscriptions.notify_slot_update(SlotUpdate::Completed {
                                 slot,
                                 timestamp: timestamp(),
                             });
                             if let Some(slot_status_notifier) = &slot_status_notifier {
+                                info!("TESTING: RpcCompletedSlotsService calling notify_completed for slot {}", slot);
                                 slot_status_notifier.read().unwrap().notify_completed(slot);
                             }
                         }

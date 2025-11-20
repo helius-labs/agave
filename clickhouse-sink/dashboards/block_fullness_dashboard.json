@@ -1,0 +1,1327 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "Compute Units (CU)",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "points",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 3,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "always",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "line"
+                        }
+                    },
+                    "mappings": [],
+                    "max": 60000000,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 48000000
+                            },
+                            {
+                                "color": "red",
+                                "value": 54000000
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 24,
+                "h": 9
+            },
+            "id": 1,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  parseDateTime64BestEffortOrNull(toString(data.timestamp)) AS time,\n  toUInt64(data.slot) AS slot,\n  toUInt64(data.block_total_cu) AS block_cu\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Block Compute Units by Slot",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "max": 100,
+                    "min": 0,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 80
+                            },
+                            {
+                                "color": "red",
+                                "value": 90
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 9,
+                "w": 6,
+                "h": 6
+            },
+            "id": 2,
+            "options": {
+                "minVizHeight": 75,
+                "minVizWidth": 75,
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "showThresholdLabels": false,
+                "showThresholdMarkers": true,
+                "sizing": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  (avg(toUInt64(data.block_total_cu)) / 60000000.0) * 100 AS avg_fullness_pct\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\n  AND (length('$validator') = 0 OR toString(data.leader) = '$validator')\n  AND (length('$slot') = 0 OR toString(data.slot) = '$slot')",
+                    "refId": "A"
+                }
+            ],
+            "title": "Avg Block Fullness %",
+            "type": "gauge"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 6,
+                "y": 9,
+                "w": 6,
+                "h": 6
+            },
+            "id": 3,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  avg(toUInt64(data.block_total_cu)) AS avg_cu\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\n  AND (length('$validator') = 0 OR toString(data.leader) = '$validator')\n  AND (length('$slot') = 0 OR toString(data.slot) = '$slot')",
+                    "refId": "A"
+                }
+            ],
+            "title": "Avg Compute Units Per Block",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 54000000
+                            },
+                            {
+                                "color": "red",
+                                "value": 57000000
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 12,
+                "y": 9,
+                "w": 6,
+                "h": 6
+            },
+            "id": 4,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  max(toUInt64(data.block_total_cu)) AS max_cu\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\n  AND (length('$validator') = 0 OR toString(data.leader) = '$validator')\n  AND (length('$slot') = 0 OR toString(data.slot) = '$slot')",
+                    "refId": "A"
+                }
+            ],
+            "title": "Max Compute Units",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 18,
+                "y": 9,
+                "w": 6,
+                "h": 6
+            },
+            "id": 5,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  (countIf(toUInt64(data.block_total_cu) >= 54000000) * 100.0) / count(*) AS full_blocks_pct\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\n  AND (length('$validator') = 0 OR toString(data.leader) = '$validator')\n  AND (length('$slot') = 0 OR toString(data.slot) = '$slot')",
+                    "refId": "A"
+                }
+            ],
+            "title": "% Blocks >90% Full",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "% Fullness",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "points",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 3,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "always",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "max": 100,
+                    "min": 0,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 15,
+                "w": 24,
+                "h": 8
+            },
+            "id": 6,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  parseDateTime64BestEffortOrNull(toString(data.timestamp)) AS time,\n  toUInt64(data.slot) AS slot,\n  (toUInt64(data.block_total_cu) / 60000000.0) * 100 AS fullness_pct\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Block Fullness Percentage by Slot",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "fillOpacity": 80,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "lineWidth": 1,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 80
+                            },
+                            {
+                                "color": "red",
+                                "value": 90
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 23,
+                "w": 12,
+                "h": 8
+            },
+            "id": 7,
+            "options": {
+                "barRadius": 0,
+                "barWidth": 0.97,
+                "fullHighlight": false,
+                "groupWidth": 0.7,
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "orientation": "auto",
+                "showValue": "auto",
+                "stacking": "none",
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                },
+                "xField": "fullness_bucket",
+                "xTickLabelRotation": 0,
+                "xTickLabelSpacing": 0
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  CASE\n    WHEN pct < 10 THEN '0-10%'\n    WHEN pct < 20 THEN '10-20%'\n    WHEN pct < 30 THEN '20-30%'\n    WHEN pct < 40 THEN '30-40%'\n    WHEN pct < 50 THEN '40-50%'\n    WHEN pct < 60 THEN '50-60%'\n    WHEN pct < 70 THEN '60-70%'\n    WHEN pct < 80 THEN '70-80%'\n    WHEN pct < 90 THEN '80-90%'\n    ELSE '90-100%'\n  END AS fullness_bucket,\n  count(*) AS block_count\nFROM (\n  SELECT\n    (toUInt64(data.block_total_cu) / 60000000.0) * 100 AS pct\n  FROM clickhouse_logs.block_metadata\n  WHERE\n    data.timestamp IS NOT NULL\n    AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n    AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n    AND data.block_total_cu IS NOT NULL\n    AND data.skipped = false\n    AND (length('$validator') = 0 OR toString(data.leader) = '$validator')\n    AND (length('$slot') = 0 OR toString(data.slot) = '$slot')\n)\nGROUP BY fullness_bucket\nORDER BY fullness_bucket",
+                    "refId": "A"
+                }
+            ],
+            "title": "Distribution of Block Fullness",
+            "type": "barchart"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "points",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 3,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "always",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 12,
+                "y": 23,
+                "w": 12,
+                "h": 8
+            },
+            "id": 8,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  parseDateTime64BestEffortOrNull(toString(data.timestamp)) AS time,\n  toUInt64(data.slot) AS slot,\n  toUInt64(data.non_vote_transactions) + toUInt64(data.vote_transactions) AS total_txns\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.non_vote_transactions IS NOT NULL\n  AND data.vote_transactions IS NOT NULL\n  AND data.skipped = false\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Total Transactions Per Block by Slot",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "Transaction Count",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 30,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "non_vote_txns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Non-Vote Transactions"
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "blue",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "vote_txns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Vote Transactions"
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "purple",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 31,
+                "w": 24,
+                "h": 8
+            },
+            "id": 11,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max", "lastNotNull"],
+                    "displayMode": "table",
+                    "placement": "right",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  toStartOfInterval(parseDateTime64BestEffortOrNull(toString(data.timestamp)), INTERVAL 1 MINUTE) AS time,\n  avg(toUInt64(data.non_vote_transactions)) AS non_vote_txns,\n  avg(toUInt64(data.vote_transactions)) AS vote_txns\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.non_vote_transactions IS NOT NULL\n  AND data.vote_transactions IS NOT NULL\n  AND data.skipped = false\nGROUP BY time\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Transaction Type Breakdown",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "footer": {
+                            "reducers": []
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "slot"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Slot"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "total_compute_units"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Total CU"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 120
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "fullness_pct"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Fullness %"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "percent"
+                            },
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": 0
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 80
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 90
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "leader"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Leader (Validator Identity)"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 200
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "total_txns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Total Txns"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 100
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "non_vote_txns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Non-Vote Txns"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "vote_txns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Vote Txns"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "timestamp"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Timestamp"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "time: YYYY-MM-DD HH:mm:ss"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 180
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 31,
+                "w": 24,
+                "h": 10
+            },
+            "id": 9,
+            "options": {
+                "cellHeight": "sm",
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": true,
+                        "displayName": "Fullness %"
+                    }
+                ]
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  toUInt64(data.slot) AS slot,\n  toString(data.leader) AS leader,\n  toUInt64(data.block_total_cu) AS total_compute_units,\n  (toUInt64(data.block_total_cu) / 60000000.0) * 100 AS fullness_pct,\n  toUInt64(data.non_vote_transactions) + toUInt64(data.vote_transactions) AS total_txns,\n  toUInt64(data.non_vote_transactions) AS non_vote_txns,\n  toUInt64(data.vote_transactions) AS vote_txns,\n  toString(data.timestamp) AS timestamp\nFROM clickhouse_logs.block_metadata\nWHERE\n  data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(data.timestamp)))\n  AND data.block_total_cu IS NOT NULL\n  AND data.skipped = false\n  AND (length('$validator') = 0 OR toString(data.leader) = '$validator')\n  AND (length('$slot') = 0 OR toString(data.slot) = '$slot')\nORDER BY fullness_pct DESC\nLIMIT 100",
+                    "refId": "A"
+                }
+            ],
+            "title": "Top 100 Fullest Blocks",
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "Block Fullness %",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "max": 100,
+                    "min": 0,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 80
+                            },
+                            {
+                                "color": "red",
+                                "value": 90
+                            }
+                        ]
+                    },
+                    "unit": "percent"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 41,
+                "w": 24,
+                "h": 9
+            },
+            "id": 10,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max", "lastNotNull"],
+                    "displayMode": "table",
+                    "placement": "right",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 3,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  toStartOfInterval(parseDateTime64BestEffortOrNull(toString(bm.data.timestamp)), INTERVAL 1 MINUTE) AS time,\n  COALESCE(toString(vm.data.client_id), 'Unknown') AS client,\n  (avg(toUInt64(bm.data.block_total_cu)) / 60000000.0) * 100 AS avg_fullness_pct\nFROM clickhouse_logs.block_metadata bm\nLEFT JOIN (\n  SELECT identity, argMax(data, timestamp) as data\n  FROM clickhouse_logs.validator_metadata\n  GROUP BY identity\n) vm ON toString(bm.data.leader) = vm.identity\nWHERE\n  bm.data.timestamp IS NOT NULL\n  AND parseDateTime64BestEffortOrNull(toString(bm.data.timestamp)) IS NOT NULL\n  AND $__timeFilter(parseDateTime64BestEffortOrNull(toString(bm.data.timestamp)))\n  AND bm.data.block_total_cu IS NOT NULL\n  AND bm.data.skipped = false\n  AND (length('$validator') = 0 OR toString(bm.data.leader) = '$validator')\n  AND (length('$slot') = 0 OR toString(bm.data.slot) = '$slot')\nGROUP BY time, client\nORDER BY time, client",
+                    "refId": "A"
+                }
+            ],
+            "title": "Block Fullness % by Validator Client",
+            "type": "timeseries"
+        }
+    ],
+    "preload": false,
+    "refresh": "30s",
+    "schemaVersion": 42,
+    "tags": ["block_metadata", "compute_units", "performance", "block_fullness"],
+    "templating": {
+        "list": [
+            {
+                "current": {
+                    "text": "clickhouse-logs",
+                    "value": "clickhouse-logs"
+                },
+                "includeAll": false,
+                "label": "Data Source",
+                "name": "datasource",
+                "options": [],
+                "query": "grafana-clickhouse-datasource",
+                "refresh": 1,
+                "regex": "",
+                "type": "datasource"
+            },
+            {
+                "auto": true,
+                "auto_count": 30,
+                "auto_min": "10s",
+                "current": {
+                    "text": "1m",
+                    "value": "1m"
+                },
+                "label": "Interval",
+                "name": "interval",
+                "options": [
+                    {
+                        "selected": false,
+                        "text": "10s",
+                        "value": "10s"
+                    },
+                    {
+                        "selected": false,
+                        "text": "30s",
+                        "value": "30s"
+                    },
+                    {
+                        "selected": true,
+                        "text": "1m",
+                        "value": "1m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "5m",
+                        "value": "5m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "15m",
+                        "value": "15m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "30m",
+                        "value": "30m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "1h",
+                        "value": "1h"
+                    }
+                ],
+                "query": "10s,30s,1m,5m,15m,30m,1h",
+                "refresh": 2,
+                "type": "interval"
+            },
+            {
+                "current": {
+                    "selected": false,
+                    "text": "",
+                    "value": ""
+                },
+                "label": "Validator Identity",
+                "name": "validator",
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "",
+                        "value": ""
+                    }
+                ],
+                "query": "",
+                "skipUrlSync": false,
+                "type": "textbox"
+            },
+            {
+                "current": {
+                    "selected": false,
+                    "text": "",
+                    "value": ""
+                },
+                "label": "Slot Number",
+                "name": "slot",
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "",
+                        "value": ""
+                    }
+                ],
+                "query": "",
+                "skipUrlSync": false,
+                "type": "textbox"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Block Fullness Dashboard",
+    "uid": "block-fullness-dashboard",
+    "version": 0
+}

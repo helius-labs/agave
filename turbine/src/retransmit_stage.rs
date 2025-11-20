@@ -826,12 +826,14 @@ fn notify_subscribers(
     rpc_subscriptions: Option<&RpcSubscriptions>,
     slot_status_notifier: Option<&SlotStatusNotifier>,
 ) {
+    info!("TESTING: RetransmitStage notifying first shred received for slot {}", slot);
     if let Some(rpc_subscriptions) = rpc_subscriptions {
         let slot_update = SlotUpdate::FirstShredReceived { slot, timestamp };
         rpc_subscriptions.notify_slot_update(slot_update);
         datapoint_info!("retransmit-first-shred", ("slot", slot, i64));
     }
     if let Some(slot_status_notifier) = slot_status_notifier {
+        info!("TESTING: RetransmitStage calling notify_first_shred_received for slot {}", slot);
         slot_status_notifier
             .read()
             .unwrap()

@@ -1321,6 +1321,7 @@ impl Blockstore {
     where
         F: Fn(PossibleDuplicateShred),
     {
+        info!("TESTING: Blockstore insert_shreds_handle_duplicate called");
         let InsertResults {
             completed_data_set_infos,
             duplicate_shreds,
@@ -1331,6 +1332,19 @@ impl Blockstore {
             Some((reed_solomon_cache, retransmit_sender)),
             metrics,
         )?;
+
+        info!(
+            "TESTING: Blockstore insert completed: {} completed data sets, {} duplicates",
+            completed_data_set_infos.len(),
+            duplicate_shreds.len()
+        );
+
+        for (idx, info) in completed_data_set_infos.iter().enumerate() {
+            info!(
+                "TESTING: Blockstore completed data set {}: slot {}",
+                idx, info.slot
+            );
+        }
 
         for shred in duplicate_shreds {
             handle_duplicate(shred);
@@ -1392,6 +1406,7 @@ impl Blockstore {
         leader_schedule: Option<&LeaderScheduleCache>,
         is_trusted: bool,
     ) -> Result<Vec<CompletedDataSetInfo>> {
+        info!("TESTING: Blockstore insert_cow_shreds called (leader path - BroadcastStage)");
         let shreds = shreds
             .into_iter()
             .map(|shred| (shred, /*is_repaired:*/ false));
@@ -1402,6 +1417,16 @@ impl Blockstore {
             None, // (reed_solomon_cache, retransmit_sender)
             &mut BlockstoreInsertionMetrics::default(),
         )?;
+        info!(
+            "TESTING: Blockstore insert_cow_shreds completed: {} completed data sets",
+            insert_results.completed_data_set_infos.len()
+        );
+        for (idx, info) in insert_results.completed_data_set_infos.iter().enumerate() {
+            info!(
+                "TESTING: Blockstore completed data set {}: slot {}",
+                idx, info.slot
+            );
+        }
         Ok(insert_results.completed_data_set_infos)
     }
 
@@ -3038,7 +3063,7 @@ impl Blockstore {
     ///
     /// The function will return BlockstoreError::SlotCleanedUp if the input
     /// `slot` has already been cleaned-up.
-    fn check_lowest_cleanup_slot(&self, slot: Slot) -> Result<std::sync::RwLockReadGuard<Slot>> {
+    fn check_lowest_cleanup_slot(&self, slot: Slot) -> Result<std::sync::RwLockReadGuard<'_, Slot>> {
         // lowest_cleanup_slot is the last slot that was not cleaned up by LedgerCleanupService
         let lowest_cleanup_slot = self.lowest_cleanup_slot.read().unwrap();
         if *lowest_cleanup_slot > 0 && *lowest_cleanup_slot >= slot {
@@ -3055,7 +3080,7 @@ impl Blockstore {
     /// This function ensures a consistent result by using lowest_cleanup_slot
     /// as the lower bound for reading columns that do not employ strong read
     /// consistency with slot-based delete_range.
-    fn ensure_lowest_cleanup_slot(&self) -> (std::sync::RwLockReadGuard<Slot>, Slot) {
+    fn ensure_lowest_cleanup_slot(&self) -> (std::sync::RwLockReadGuard<'_, Slot>, Slot) {
         let lowest_cleanup_slot = self.lowest_cleanup_slot.read().unwrap();
         let lowest_available_slot = (*lowest_cleanup_slot)
             .checked_add(1)

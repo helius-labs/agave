@@ -42,6 +42,7 @@ members = [
     "genesis-utils",
     "geyser-plugin-interface",
     "geyser-plugin-manager",
+    "clickhouse-sink",
     "gossip",
     "install",
     "io-uring",

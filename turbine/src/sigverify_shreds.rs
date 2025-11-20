@@ -6,6 +6,7 @@ use {
     agave_feature_set as feature_set,
     crossbeam_channel::{Receiver, RecvTimeoutError, SendError, Sender},
     itertools::{Either, Itertools},
+    log::*,
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     solana_clock::Slot,
     solana_gossip::cluster_info::ClusterInfo,
@@ -155,6 +156,7 @@ fn run_shred_sigverify<const K: usize>(
 ) -> Result<(), ShredSigverifyError> {
     const RECV_TIMEOUT: Duration = Duration::from_secs(1);
     let packets = shred_fetch_receiver.recv_timeout(RECV_TIMEOUT)?;
+    let initial_packet_count = packets.len();
     stats.num_packets += packets.len();
     shred_buffer.push(packets);
     for packets in shred_fetch_receiver
@@ -163,6 +165,10 @@ fn run_shred_sigverify<const K: usize>(
     {
         stats.num_packets += packets.len();
         shred_buffer.push(packets);
+    }
+    if initial_packet_count > 0 || shred_buffer.len() > 1 {
+        let total_packets: usize = shred_buffer.iter().map(|b| b.len()).sum();
+        info!("TESTING: SigVerify received {} packet batches ({} total packets) from ShredFetchStage", shred_buffer.len(), total_packets);
     }
 
     let now = Instant::now();
@@ -267,13 +273,18 @@ fn run_shred_sigverify<const K: usize>(
         }
     }
     // Send all shreds to window service to be inserted into blockstore.
+    let shreds_count = shreds.len();
+    let repairs_count = repairs.len();
     let shreds = shreds
         .into_iter()
         .map(|shred| (shred, /*is_repaired:*/ false));
     let repairs = repairs
         .into_iter()
         .map(|shred| (shred, /*is_repaired:*/ true));
-    verified_sender.send(shreds.chain(repairs).collect())?;
+    let verified_shreds: Vec<_> = shreds.chain(repairs).collect();
+    info!("TESTING: SigVerify sending {} verified shreds ({} normal, {} repairs) to WindowService",
+          verified_shreds.len(), shreds_count, repairs_count);
+    verified_sender.send(verified_shreds)?;
     stats.elapsed_micros += now.elapsed().as_micros() as u64;
     shred_buffer.clear();
     Ok(())

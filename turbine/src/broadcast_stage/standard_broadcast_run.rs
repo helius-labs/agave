@@ -351,6 +351,28 @@ impl StandardBroadcastRun {
             .map(usize::from)
             .unwrap_or_default();
         let num_shreds = shreds.len();
+        let slot = shreds.first().map(|s| s.slot()).unwrap_or(0);
+        info!("TESTING: BroadcastStage inserting {} shreds (offset {}) for slot {} into Blockstore", num_shreds, offset, slot);
+
+        // Emit shred_received events for ClickHouse latency tracking
+        let timestamp_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+        for shred in shreds.iter() {
+            let metadata = serde_json::json!({
+                "slot": shred.slot(),
+                "shred_index": shred.index(),
+            });
+            let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "shred_received".to_string(),
+                slot: shred.slot(),
+                timestamp_us,
+                metadata,
+            };
+            clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
+        }
+
         let shreds = shreds.iter().skip(offset).map(Cow::Borrowed);
         blockstore
             .insert_cow_shreds(

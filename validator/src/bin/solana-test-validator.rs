@@ -604,6 +604,39 @@ fn main() {
         genesis.compute_unit_limit(compute_unit_limit);
     }
 
+    // Initialize ClickHouse sink with a background runtime
+    let clickhouse_config = clickhouse_sink::ClickhouseConfig {
+        url: "http://64.130.33.150:8123".to_string(),
+        user: "default".to_string(),
+        password: "ye9T8NYX9cMvbAgCLodjeK9BHFJkndrWoRr6ac4x3eFBrEh8Zz".to_string(),
+        database: "default".to_string(),
+        flush_batch_size: 500_000,
+        flush_interval: std::time::Duration::from_millis(500),
+        env: Some("test-validator".to_string()),
+        host: Some("localhost".to_string()),
+        tags: std::collections::HashMap::new(),
+    };
+    std::thread::spawn(|| {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_io()
+            .enable_time()
+            .worker_threads(2)
+            .thread_name("clickhouse-sink")
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            clickhouse_sink::init(clickhouse_config).await.unwrap();
+            info!("ClickHouse sink initialized and running");
+            // Keep runtime alive forever
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    });
+    // Give the sink time to initialize
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    info!("ClickHouse initialization thread started");
+
     match genesis.start_with_mint_address_and_geyser_plugin_rpc(
         mint_address,
         socket_addr_space,

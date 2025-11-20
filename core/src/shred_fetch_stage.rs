@@ -170,6 +170,10 @@ impl ShredFetchStage {
                     stats.report();
                 }
             }
+            let valid_count = packet_batch.iter().filter(|p| !p.meta().discard()).count();
+            if valid_count > 0 {
+                info!("TESTING: ShredFetchStage sending {} valid packets to WindowService ({})", valid_count, name);
+            }
             if let Err(send_err) = sendr.try_send(packet_batch) {
                 match send_err {
                     crossbeam_channel::TrySendError::Full(v) => {
@@ -251,6 +255,7 @@ impl ShredFetchStage {
         turbine_disabled: Arc<AtomicBool>,
         exit: Arc<AtomicBool>,
     ) -> Self {
+        info!("TESTING: ShredFetchStage starting up with {} UDP sockets, shred_version: {}", sockets.len(), shred_version);
         let recycler = PacketBatchRecycler::warmed(100, 1024);
         let repair_context = RepairContext {
             repair_socket: repair_socket.clone(),

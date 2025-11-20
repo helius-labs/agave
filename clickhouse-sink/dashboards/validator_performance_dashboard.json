@@ -1,0 +1,1005 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "footer": {
+                            "reducers": []
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "leader"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Validator Identity"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 350
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "validator_name"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Validator Name"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 200
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "client"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Client"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 120
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "total_txns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Total Txns"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "avg_latency_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Avg Latency"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            },
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": 0
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 150000000
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 200000000
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "p50_latency_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "P50 Latency"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "p95_latency_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "P95 Latency"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "p99_latency_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "P99 Latency"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            },
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": 0
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 150000000
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 200000000
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 24,
+                "h": 12
+            },
+            "id": 1,
+            "options": {
+                "cellHeight": "sm",
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": true,
+                        "displayName": "Avg Latency"
+                    }
+                ]
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 1000,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  toString(sl.data.leader_sent) AS leader,\n  vm.name AS validator_name,\n  vm.client_id AS client,\n  count(*) AS total_txns,\n  avg(toUInt64(sl.data.latency_ns)) AS avg_latency_ns,\n  quantile(0.5)(toUInt64(sl.data.latency_ns)) AS p50_latency_ns,\n  quantile(0.95)(toUInt64(sl.data.latency_ns)) AS p95_latency_ns,\n  quantile(0.99)(toUInt64(sl.data.latency_ns)) AS p99_latency_ns\nFROM clickhouse_logs.slot_latency sl\nLEFT JOIN (\n  SELECT \n    identity,\n    argMax(data.name.:String, timestamp) as name,\n    argMax(data.client_id.:String, timestamp) as client_id\n  FROM clickhouse_logs.validator_metadata\n  GROUP BY identity\n) vm ON toString(sl.data.leader_sent) = vm.identity\nWHERE\n  $__timeFilter(sl.timestamp)\n  AND sl.data.leader_sent IS NOT NULL\n  AND sl.data.slot_sent IS NOT NULL\n  AND sl.data.slot_landed IS NOT NULL\n  AND toUInt64(sl.data.slot_sent) = toUInt64(sl.data.slot_landed)\n  AND sl.data.latency_ns IS NOT NULL\n  AND sl.data.latency_ns > 0\n  AND sl.data.latency_ns < 300000000000\n  AND match(toString(sl.data.host), '${host:regex}')\n  AND match(toString(sl.data.staked), '${staked:regex}')\n  AND match(toString(sl.data.is_relayed), '${is_relayed:regex}')\n  AND (${priority} = 0 OR toUInt64(sl.data.priority) >= ${priority})\n  AND ('${leader_search}' = '' OR toString(sl.data.leader_sent) LIKE '%${leader_search}%')\nGROUP BY leader, validator_name, client\nORDER BY avg_latency_ns DESC\nLIMIT ${result_limit}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Validator Performance - All Leaders",
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "ns"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 12,
+                "w": 12,
+                "h": 8
+            },
+            "id": 2,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max", "min"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(sl.timestamp) AS time,\n  concat(coalesce(vm.name, ''), ' (', toString(sl.data.leader_sent), ')') AS leader,\n  avg(toUInt64(sl.data.latency_ns)) AS avg_latency\nFROM clickhouse_logs.slot_latency sl\nLEFT JOIN (\n  SELECT \n    identity,\n    argMax(data.name.:String, timestamp) as name\n  FROM clickhouse_logs.validator_metadata\n  GROUP BY identity\n) vm ON toString(sl.data.leader_sent) = vm.identity\nWHERE\n  $__timeFilter(sl.timestamp)\n  AND sl.data.leader_sent IS NOT NULL\n  AND sl.data.slot_sent IS NOT NULL\n  AND sl.data.slot_landed IS NOT NULL\n  AND toUInt64(sl.data.slot_sent) = toUInt64(sl.data.slot_landed)\n  AND sl.data.latency_ns IS NOT NULL\n  AND sl.data.latency_ns > 0\n  AND sl.data.latency_ns < 300000000000\n  AND match(toString(sl.data.host), '${host:regex}')\n  AND match(toString(sl.data.staked), '${staked:regex}')\n  AND match(toString(sl.data.is_relayed), '${is_relayed:regex}')\n  AND (${priority} = 0 OR toUInt64(sl.data.priority) >= ${priority})\n  AND ('${leader_search}' = '' OR toString(sl.data.leader_sent) LIKE '%${leader_search}%')\nGROUP BY time, leader\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Average Latency by Leader Over Time",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 12,
+                "y": 12,
+                "w": 12,
+                "h": 8
+            },
+            "id": 3,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "meta": {
+                        "builderOptions": {
+                            "fields": [],
+                            "limit": 100,
+                            "mode": "list"
+                        }
+                    },
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(sl.timestamp) AS time,\n  concat(coalesce(vm.name, ''), ' (', toString(sl.data.leader_sent), ')') AS leader,\n  count(*) AS txn_count\nFROM clickhouse_logs.slot_latency sl\nLEFT JOIN (\n  SELECT \n    identity,\n    argMax(data.name.:String, timestamp) as name\n  FROM clickhouse_logs.validator_metadata\n  GROUP BY identity\n) vm ON toString(sl.data.leader_sent) = vm.identity\nWHERE\n  $__timeFilter(sl.timestamp)\n  AND sl.data.leader_sent IS NOT NULL\n  AND sl.data.slot_sent IS NOT NULL\n  AND sl.data.slot_landed IS NOT NULL\n  AND toUInt64(sl.data.slot_sent) = toUInt64(sl.data.slot_landed)\n  AND match(toString(sl.data.host), '${host:regex}')\n  AND match(toString(sl.data.staked), '${staked:regex}')\n  AND match(toString(sl.data.is_relayed), '${is_relayed:regex}')\n  AND (${priority} = 0 OR toUInt64(sl.data.priority) >= ${priority})\n  AND ('${leader_search}' = '' OR toString(sl.data.leader_sent) LIKE '%${leader_search}%')\nGROUP BY time, leader\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Same-Slot Transaction Count by Leader Over Time",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "client"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Client"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 200
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "validator_count"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Validator Count"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "avg_max_open_uni_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Avg Max Open Uni (ns)"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            },
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": null
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 50000
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 100000
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "p95_max_open_uni_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "P95 Max Open Uni (ns)"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            },
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": null
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 100000
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 200000
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "p99_max_open_uni_ns"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "P99 Max Open Uni (ns)"
+                            },
+                            {
+                                "id": "unit",
+                                "value": "ns"
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "sample_count"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Sample Count"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 20,
+                "w": 24,
+                "h": 10
+            },
+            "id": 4,
+            "options": {
+                "cellHeight": "sm",
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": true,
+                        "displayName": "P95 Max Open Uni (ns)"
+                    }
+                ]
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  vm.client_id AS client,\n  count(DISTINCT toString(m.data.identity)) AS validator_count,\n  count(*) AS sample_count,\n  avg(toUInt64(m.data.max_open_uni_ns)) AS avg_max_open_uni_ns,\n  quantile(0.95)(toUInt64(m.data.max_open_uni_ns)) AS p95_max_open_uni_ns,\n  quantile(0.99)(toUInt64(m.data.max_open_uni_ns)) AS p99_max_open_uni_ns\nFROM clickhouse_logs.metrics m\nLEFT JOIN (\n  SELECT \n    identity,\n    argMax(data.client_id.:String, timestamp) as client_id\n  FROM clickhouse_logs.validator_metadata\n  GROUP BY identity\n) vm ON toString(m.data.identity) = vm.identity\nWHERE\n  $__timeFilter(m.timestamp)\n  AND toString(m.data.metric) = 'connection_loop_total_time_ns'\n  AND m.data.max_open_uni_ns IS NOT NULL\n  AND match(toString(m.data.host), '${host:regex}')\n  AND match(toString(m.data.staked), '${staked:regex}')\n  AND vm.client_id IS NOT NULL\nGROUP BY client\nORDER BY p95_max_open_uni_ns DESC\nLIMIT ${result_limit}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Max Open Uni Performance by Client",
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "ns"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "x": 0,
+                "y": 30,
+                "w": 24,
+                "h": 8
+            },
+            "id": 5,
+            "options": {
+                "legend": {
+                    "calcs": ["mean", "max", "min"],
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  $__timeInterval(m.timestamp) AS time,\n  vm.client_id AS client,\n  avg(toUInt64(m.data.max_open_uni_ns)) AS avg_max_open_uni\nFROM clickhouse_logs.metrics m\nLEFT JOIN (\n  SELECT \n    identity,\n    argMax(data.client_id.:String, timestamp) as client_id\n  FROM clickhouse_logs.validator_metadata\n  GROUP BY identity\n) vm ON toString(m.data.identity) = vm.identity\nWHERE\n  $__timeFilter(m.timestamp)\n  AND toString(m.data.metric) = 'connection_loop_total_time_ns'\n  AND m.data.max_open_uni_ns IS NOT NULL\n  AND match(toString(m.data.host), '${host:regex}')\n  AND match(toString(m.data.staked), '${staked:regex}')\n  AND vm.client_id IS NOT NULL\nGROUP BY time, client\nORDER BY time",
+                    "refId": "A"
+                }
+            ],
+            "title": "Max Open Uni by Client Over Time",
+            "type": "timeseries"
+        }
+    ],
+    "preload": false,
+    "refresh": "30s",
+    "schemaVersion": 42,
+    "tags": ["validator", "performance", "latency"],
+    "templating": {
+        "list": [
+            {
+                "current": {
+                    "text": "clickhouse-logs",
+                    "value": "clickhouse-logs"
+                },
+                "includeAll": false,
+                "label": "Data Source",
+                "name": "datasource",
+                "options": [],
+                "query": "grafana-clickhouse-datasource",
+                "refresh": 1,
+                "regex": "",
+                "type": "datasource"
+            },
+            {
+                "auto": true,
+                "auto_count": 30,
+                "auto_min": "10s",
+                "current": {
+                    "text": "1m",
+                    "value": "1m"
+                },
+                "label": "Interval",
+                "name": "interval",
+                "options": [
+                    {
+                        "selected": false,
+                        "text": "10s",
+                        "value": "10s"
+                    },
+                    {
+                        "selected": false,
+                        "text": "30s",
+                        "value": "30s"
+                    },
+                    {
+                        "selected": true,
+                        "text": "1m",
+                        "value": "1m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "5m",
+                        "value": "5m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "15m",
+                        "value": "15m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "30m",
+                        "value": "30m"
+                    },
+                    {
+                        "selected": false,
+                        "text": "1h",
+                        "value": "1h"
+                    }
+                ],
+                "query": "10s,30s,1m,5m,15m,30m,1h",
+                "refresh": 2,
+                "type": "interval"
+            },
+            {
+                "current": {
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.host) FROM clickhouse_logs.slot_latency WHERE data.host IS NOT NULL ORDER BY toString(data.host)",
+                "includeAll": true,
+                "allValue": ".*",
+                "label": "Host",
+                "multi": true,
+                "name": "host",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.host) FROM clickhouse_logs.slot_latency WHERE data.host IS NOT NULL ORDER BY toString(data.host)",
+                "refresh": 1,
+                "regex": "",
+                "type": "query"
+            },
+            {
+                "current": {
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.staked) FROM clickhouse_logs.slot_latency WHERE data.staked IS NOT NULL ORDER BY toString(data.staked)",
+                "includeAll": true,
+                "allValue": ".*",
+                "label": "Staked",
+                "multi": true,
+                "name": "staked",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.staked) FROM clickhouse_logs.slot_latency WHERE data.staked IS NOT NULL ORDER BY toString(data.staked)",
+                "refresh": 1,
+                "regex": "",
+                "type": "query"
+            },
+            {
+                "current": {
+                    "text": "All",
+                    "value": "$__all"
+                },
+                "datasource": {
+                    "type": "grafana-clickhouse-datasource",
+                    "uid": "${datasource}"
+                },
+                "definition": "SELECT DISTINCT toString(data.is_relayed) FROM clickhouse_logs.slot_latency WHERE data.is_relayed IS NOT NULL ORDER BY toString(data.is_relayed)",
+                "includeAll": true,
+                "allValue": ".*",
+                "label": "Is Relayed",
+                "multi": true,
+                "name": "is_relayed",
+                "options": [],
+                "query": "SELECT DISTINCT toString(data.is_relayed) FROM clickhouse_logs.slot_latency WHERE data.is_relayed IS NOT NULL ORDER BY toString(data.is_relayed)",
+                "refresh": 1,
+                "regex": "",
+                "type": "query"
+            },
+            {
+                "current": {
+                    "selected": true,
+                    "text": "0",
+                    "value": "0"
+                },
+                "hide": 0,
+                "includeAll": false,
+                "label": "Min Priority (>= filter)",
+                "multi": false,
+                "name": "priority",
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "0",
+                        "value": "0"
+                    },
+                    {
+                        "selected": false,
+                        "text": "1",
+                        "value": "1"
+                    },
+                    {
+                        "selected": false,
+                        "text": "5",
+                        "value": "5"
+                    },
+                    {
+                        "selected": false,
+                        "text": "10",
+                        "value": "10"
+                    }
+                ],
+                "query": "0,1,5,10",
+                "queryValue": "",
+                "skipUrlSync": false,
+                "type": "custom"
+            },
+            {
+                "current": {
+                    "text": "",
+                    "value": ""
+                },
+                "label": "Search Leader (Validator Identity)",
+                "name": "leader_search",
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "",
+                        "value": ""
+                    }
+                ],
+                "query": "",
+                "type": "textbox"
+            },
+            {
+                "current": {
+                    "text": "100",
+                    "value": "100"
+                },
+                "label": "Result Limit",
+                "name": "result_limit",
+                "options": [
+                    {
+                        "selected": false,
+                        "text": "50",
+                        "value": "50"
+                    },
+                    {
+                        "selected": true,
+                        "text": "100",
+                        "value": "100"
+                    },
+                    {
+                        "selected": false,
+                        "text": "500",
+                        "value": "500"
+                    },
+                    {
+                        "selected": false,
+                        "text": "1000",
+                        "value": "1000"
+                    }
+                ],
+                "query": "50,100,500,1000",
+                "type": "custom"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Validator Performance Dashboard",
+    "uid": "validator-performance-dashboard",
+    "version": 0
+}

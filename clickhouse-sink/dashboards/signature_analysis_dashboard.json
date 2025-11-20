@@ -1,0 +1,531 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 8,
+                "x": 0,
+                "y": 0
+            },
+            "id": 4,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  count(DISTINCT toString(data.host)) AS host_count\nFROM clickhouse_logs.slot_latency\nWHERE\n  ('${signature}' = '' OR signature = '${signature}')\n  AND ('${slot}' = '' OR toString(data.slot_sent) = '${slot}')\n",
+                    "refId": "A"
+                }
+            ],
+            "title": "# of Hosts Received",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "purple",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "SOL"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 8,
+                "x": 8,
+                "y": 0
+            },
+            "id": 5,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  toUInt64(data.tip_amount) / 1000000000 AS tip_sol\nFROM clickhouse_logs.slot_latency\nWHERE\n  ('${signature}' = '' OR signature = '${signature}')\n  AND data.tip_amount IS NOT NULL\n  AND ('${slot}' = '' OR toString(data.slot_sent) = '${slot}')\nLIMIT 1\n",
+                    "refId": "A"
+                }
+            ],
+            "title": "Tip Amount",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "orange",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 8,
+                "x": 16,
+                "y": 0
+            },
+            "id": 6,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  toUInt64(data.priority) AS priority_fee\nFROM clickhouse_logs.slot_latency\nWHERE\n  ('${signature}' = '' OR signature = '${signature}')\n  AND data.priority IS NOT NULL\n  AND ('${slot}' = '' OR toString(data.slot_sent) = '${slot}')\nLIMIT 1\n",
+                    "refId": "A"
+                }
+            ],
+            "title": "Priority Fee",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "slot_latency"
+                        },
+                        "properties": [
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": null
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 1
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 5
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "timestamp"
+                        },
+                        "properties": [
+                            {
+                                "id": "unit",
+                                "value": "time: YYYY-MM-DD HH:mm:ss.SSS"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 200
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 10,
+                "w": 24,
+                "x": 0,
+                "y": 4
+            },
+            "id": 7,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "fields": "",
+                    "reducer": ["sum"],
+                    "show": false
+                },
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": false,
+                        "displayName": "timestamp"
+                    }
+                ]
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  timestamp,\n  toString(data.host) AS host,\n  toUInt64(data.slot_sent) AS slot_sent,\n  toUInt64(data.slot_received) AS slot_received,\n  toUInt64(data.slot_landed) AS slot_landed,\n  toUInt64(data.slot_landed) - toUInt64(data.slot_sent) AS slot_latency,\n  toUInt64(data.latency_ns) / 1000000 AS latency_ms,\n  toString(data.leader_sent) AS leader_sent,\n  toString(data.leaders_landed) AS leaders_landed,\n  toString(data.staked) AS staked,\n  toString(data.txn_strategy) AS txn_strategy,\n  toString(data.client_ip) AS client_ip,\n  toString(data.api_key) AS api_key,\n  toString(data.failed) AS failed,\n  toString(data.dropped_after_ms) AS dropped_after_ms\nFROM clickhouse_logs.slot_latency\nWHERE\n  ('${signature}' = '' OR signature = '${signature}')\n  AND ('${slot}' = '' OR toString(data.slot_sent) = '${slot}')\nORDER BY timestamp ASC\n",
+                    "refId": "A"
+                }
+            ],
+            "title": "Slot Latency Records (All Hosts)",
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "${datasource}"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "timestamp"
+                        },
+                        "properties": [
+                            {
+                                "id": "unit",
+                                "value": "time: YYYY-MM-DD HH:mm:ss.SSS"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 200
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "slot_delta"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Slot Delta (sent - current)"
+                            },
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "type": "color-background"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": null
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 1
+                                        },
+                                        {
+                                            "color": "orange",
+                                            "value": 2
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 3
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "send_error"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Send Error"
+                            },
+                            {
+                                "id": "custom.width",
+                                "value": 300
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 10,
+                "w": 24,
+                "x": 0,
+                "y": 14
+            },
+            "id": 9,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "fields": "",
+                    "reducer": ["sum"],
+                    "show": false
+                },
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": false,
+                        "displayName": "timestamp"
+                    }
+                ]
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "grafana-clickhouse-datasource",
+                        "uid": "${datasource}"
+                    },
+                    "format": 1,
+                    "queryType": "sql",
+                    "rawSql": "SELECT\n  timestamp,\n  toString(data.host) AS host,\n  toString(data.datacenter) AS datacenter,\n  toUInt64(data.slot) AS slot,\n  toUInt64(data.slot_sent) AS slot_sent,\n  toInt64(data.slot_delta) AS slot_delta,\n  toString(data.staked) AS staked,\n  toString(data.leader) AS leader,\n  toString(data.is_current_leader) AS is_current_leader,\n  toString(data.is_retry) AS is_retry,\n  toString(data.dropped) AS dropped,\n  toString(data.send_error) AS send_error,\n  toString(data.txn_strategy) AS txn_strategy,\n  toString(data.api_key) AS api_key\nFROM clickhouse_logs.txn_sender_logs\nWHERE\n  ('${signature}' = '' OR signature = '${signature}')\n  AND ('${slot}' = '' OR toString(data.slot) = '${slot}')\nORDER BY timestamp ASC\n",
+                    "refId": "A"
+                }
+            ],
+            "title": "Transaction Sender Logs",
+            "type": "table"
+        }
+    ],
+    "refresh": "",
+    "preload": false,
+    "schemaVersion": 42,
+    "tags": ["signature", "debug", "latency"],
+    "templating": {
+        "list": [
+            {
+                "current": {
+                    "text": "clickhouse-logs",
+                    "value": "clickhouse-logs"
+                },
+                "includeAll": false,
+                "label": "Data Source",
+                "name": "datasource",
+                "options": [],
+                "query": "grafana-clickhouse-datasource",
+                "refresh": 1,
+                "regex": "",
+                "type": "datasource"
+            },
+            {
+                "current": {
+                    "text": "",
+                    "value": ""
+                },
+                "label": "Signature",
+                "name": "signature",
+                "options": [
+                    {
+                        "text": "",
+                        "value": ""
+                    }
+                ],
+                "query": "",
+                "skipUrlSync": false,
+                "type": "textbox"
+            },
+            {
+                "current": {
+                    "text": "",
+                    "value": ""
+                },
+                "label": "Slot",
+                "name": "slot",
+                "options": [
+                    {
+                        "text": "",
+                        "value": ""
+                    }
+                ],
+                "query": "",
+                "skipUrlSync": false,
+                "type": "textbox"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-24h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Signature Analysis Dashboard",
+    "uid": "signature-analysis-dashboard",
+    "version": 0
+}

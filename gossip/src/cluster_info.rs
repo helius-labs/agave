@@ -388,7 +388,7 @@ impl ClusterInfo {
         self.keypair.read().unwrap().pubkey()
     }
 
-    pub fn keypair(&self) -> RwLockReadGuard<Arc<Keypair>> {
+    pub fn keypair(&self) -> RwLockReadGuard<'_, Arc<Keypair>> {
         self.keypair.read().unwrap()
     }
 
