@@ -140,9 +140,14 @@ pub fn execute(
 
     // Initialize ClickHouse sink for event tracking
     let clickhouse_config = clickhouse_sink::ClickhouseConfig {
-        password: Some("ye9T8NYX9cMvbAgCLodjeK9BHFJkndrWoRr6ac4x3eFBrEh8Zz".to_string()),
-        env: Some("validator".to_string()),
-        host: Some("dev-morgan".to_string()),
+        url: "http://64.130.33.150:8123".to_string(),
+        user: "default".to_string(),
+        password: "ye9T8NYX9cMvbAgCLodjeK9BHFJkndrWoRr6ac4x3eFBrEh8Zz".to_string(),
+        database: "default".to_string(),
+        flush_batch_size: 100_000,
+        flush_interval: std::time::Duration::from_millis(500),
+        env: None,
+        host: None,
         tags: std::collections::HashMap::new(),
     };
     std::thread::spawn(|| {
