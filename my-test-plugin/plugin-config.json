@@ -1,0 +1,6 @@
+{
+  "libpath": "/home/ubuntu/repos/agave/my-test-plugin/target/release/libmy_test_plugin.so",
+  "log": {
+      "level": "info"
+  }
+}

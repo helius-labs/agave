@@ -1,0 +1,19 @@
+[package]
+name = "my_test_plugin"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+# Empty workspace to exclude from parent workspace
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints.rust]
+warnings = "warn"
+deprecated = "warn"
+
+[dependencies]
+agave-geyser-plugin-interface = { path = "../geyser-plugin-interface" }
+solana-logger = "3.0.0"
+log = "0.4"
