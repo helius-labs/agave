@@ -1321,7 +1321,6 @@ impl Blockstore {
     where
         F: Fn(PossibleDuplicateShred),
     {
-        info!("TESTING: Blockstore insert_shreds_handle_duplicate called");
         let InsertResults {
             completed_data_set_infos,
             duplicate_shreds,
@@ -1332,19 +1331,6 @@ impl Blockstore {
             Some((reed_solomon_cache, retransmit_sender)),
             metrics,
         )?;
-
-        info!(
-            "TESTING: Blockstore insert completed: {} completed data sets, {} duplicates",
-            completed_data_set_infos.len(),
-            duplicate_shreds.len()
-        );
-
-        for (idx, info) in completed_data_set_infos.iter().enumerate() {
-            info!(
-                "TESTING: Blockstore completed data set {}: slot {}",
-                idx, info.slot
-            );
-        }
 
         for shred in duplicate_shreds {
             handle_duplicate(shred);
@@ -1406,7 +1392,6 @@ impl Blockstore {
         leader_schedule: Option<&LeaderScheduleCache>,
         is_trusted: bool,
     ) -> Result<Vec<CompletedDataSetInfo>> {
-        info!("TESTING: Blockstore insert_cow_shreds called (leader path - BroadcastStage)");
         let shreds = shreds
             .into_iter()
             .map(|shred| (shred, /*is_repaired:*/ false));
@@ -1417,16 +1402,6 @@ impl Blockstore {
             None, // (reed_solomon_cache, retransmit_sender)
             &mut BlockstoreInsertionMetrics::default(),
         )?;
-        info!(
-            "TESTING: Blockstore insert_cow_shreds completed: {} completed data sets",
-            insert_results.completed_data_set_infos.len()
-        );
-        for (idx, info) in insert_results.completed_data_set_infos.iter().enumerate() {
-            info!(
-                "TESTING: Blockstore completed data set {}: slot {}",
-                idx, info.slot
-            );
-        }
         Ok(insert_results.completed_data_set_infos)
     }
 
@@ -3063,7 +3038,10 @@ impl Blockstore {
     ///
     /// The function will return BlockstoreError::SlotCleanedUp if the input
     /// `slot` has already been cleaned-up.
-    fn check_lowest_cleanup_slot(&self, slot: Slot) -> Result<std::sync::RwLockReadGuard<'_, Slot>> {
+    fn check_lowest_cleanup_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<std::sync::RwLockReadGuard<'_, Slot>> {
         // lowest_cleanup_slot is the last slot that was not cleaned up by LedgerCleanupService
         let lowest_cleanup_slot = self.lowest_cleanup_slot.read().unwrap();
         if *lowest_cleanup_slot > 0 && *lowest_cleanup_slot >= slot {
@@ -4561,9 +4539,9 @@ impl Blockstore {
                     timestamp_us: slot_complete_timestamp_us,
                     metadata,
                 };
-                clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-                    event,
-                ));
+                clickhouse_sink::sink::record(
+                    clickhouse_sink::table_batcher::TableRow::AgaveEvents(event),
+                );
             }
             // Check if the working copy of the metadata has changed
             if Some(meta) != meta_backup.as_ref() {

@@ -198,7 +198,6 @@ where
     let mut shred_receiver_elapsed = Measure::start("shred_receiver_elapsed");
     let mut shreds = verified_receiver.recv_timeout(RECV_TIMEOUT)?;
     shreds.extend(verified_receiver.try_iter().flatten());
-    info!("TESTING: WindowService received {} shreds from ShredFetchStage", shreds.len());
     shred_receiver_elapsed.stop();
     ws_metrics.shred_receiver_elapsed_us += shred_receiver_elapsed.as_us();
     ws_metrics.run_insert_count += 1;
@@ -222,7 +221,6 @@ where
     });
     ws_metrics.handle_packets_elapsed_us += now.elapsed().as_micros() as u64;
     ws_metrics.num_shreds_received += shreds.len();
-    info!("TESTING: WindowService inserting {} shreds into Blockstore", shreds.len());
     let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
         shreds,
         Some(leader_schedule_cache),
@@ -233,7 +231,6 @@ where
         metrics,
     )?;
 
-    info!("TESTING: WindowService got {} completed data sets from Blockstore", completed_data_sets.len());
     if let Some(sender) = completed_data_sets_sender {
         sender.try_send(completed_data_sets)?;
     }

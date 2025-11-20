@@ -168,7 +168,6 @@ fn run_shred_sigverify<const K: usize>(
     }
     if initial_packet_count > 0 || shred_buffer.len() > 1 {
         let total_packets: usize = shred_buffer.iter().map(|b| b.len()).sum();
-        info!("TESTING: SigVerify received {} packet batches ({} total packets) from ShredFetchStage", shred_buffer.len(), total_packets);
     }
 
     let now = Instant::now();
@@ -282,8 +281,6 @@ fn run_shred_sigverify<const K: usize>(
         .into_iter()
         .map(|shred| (shred, /*is_repaired:*/ true));
     let verified_shreds: Vec<_> = shreds.chain(repairs).collect();
-    info!("TESTING: SigVerify sending {} verified shreds ({} normal, {} repairs) to WindowService",
-          verified_shreds.len(), shreds_count, repairs_count);
     verified_sender.send(verified_shreds)?;
     stats.elapsed_micros += now.elapsed().as_micros() as u64;
     shred_buffer.clear();

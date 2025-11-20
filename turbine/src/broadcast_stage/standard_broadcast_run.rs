@@ -352,7 +352,6 @@ impl StandardBroadcastRun {
             .unwrap_or_default();
         let num_shreds = shreds.len();
         let slot = shreds.first().map(|s| s.slot()).unwrap_or(0);
-        info!("TESTING: BroadcastStage inserting {} shreds (offset {}) for slot {} into Blockstore", num_shreds, offset, slot);
 
         // Emit shred_received events for ClickHouse latency tracking
         let timestamp_us = std::time::SystemTime::now()

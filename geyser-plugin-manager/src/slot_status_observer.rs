@@ -57,21 +57,18 @@ impl SlotStatusObserver {
                     if let Ok(slot) = bank_notification_receiver.recv() {
                         match slot {
                             SlotNotification::OptimisticallyConfirmed(slot) => {
-                                info!("TESTING: SlotStatusObserver received OptimisticallyConfirmed for slot {}", slot);
                                 slot_status_notifier
                                     .read()
                                     .unwrap()
                                     .notify_slot_confirmed(slot, None);
                             }
                             SlotNotification::Frozen((slot, parent)) => {
-                                info!("TESTING: SlotStatusObserver received Frozen for slot {} parent {}", slot, parent);
                                 slot_status_notifier
                                     .read()
                                     .unwrap()
                                     .notify_slot_processed(slot, Some(parent));
                             }
                             SlotNotification::Root((slot, parent)) => {
-                                info!("TESTING: SlotStatusObserver received Root for slot {} parent {}", slot, parent);
                                 slot_status_notifier
                                     .read()
                                     .unwrap()

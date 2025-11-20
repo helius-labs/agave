@@ -290,12 +290,6 @@ impl Consumer {
             .unwrap()
             .as_micros() as u64;
         let tx_count = batch.sanitized_transactions().len();
-        info!(
-            "TESTING: BankingStage emitting tx_replay_start for {} transactions in slot {}",
-            tx_count,
-            bank.slot()
-        );
-        if tx_count > 0 {}
         for tx in batch.sanitized_transactions() {
             let metadata = serde_json::json!({
                 "slot": bank.slot(),
@@ -336,13 +330,6 @@ impl Consumer {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_micros() as u64;
-        if tx_count > 0 {
-            info!(
-                "TESTING: BankingStage emitting tx_replay_complete for {} transactions in slot {}",
-                tx_count,
-                bank.slot()
-            );
-        }
         for tx in batch.sanitized_transactions() {
             let metadata = serde_json::json!({
                 "slot": bank.slot(),
