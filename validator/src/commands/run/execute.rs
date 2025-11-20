@@ -138,6 +138,34 @@ pub fn execute(
 
     solana_core::validator::report_target_features();
 
+    // Initialize ClickHouse sink for event tracking
+    let clickhouse_config = clickhouse_sink::ClickhouseConfig {
+        password: Some("ye9T8NYX9cMvbAgCLodjeK9BHFJkndrWoRr6ac4x3eFBrEh8Zz".to_string()),
+        env: Some("validator".to_string()),
+        host: Some("dev-morgan".to_string()),
+        tags: std::collections::HashMap::new(),
+    };
+    std::thread::spawn(|| {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_io()
+            .enable_time()
+            .worker_threads(2)
+            .thread_name("clickhouse-sink")
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            clickhouse_sink::init(clickhouse_config).await.unwrap();
+            info!("ClickHouse sink initialized and running");
+            // Keep runtime alive forever
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    });
+    // Give the sink time to initialize
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    info!("ClickHouse initialization thread started");
+
     let authorized_voter_keypairs = keypairs_of(matches, "authorized_voter_keypairs")
         .map(|keypairs| keypairs.into_iter().map(Arc::new).collect())
         .unwrap_or_else(|| vec![Arc::new(keypair_of(matches, "identity").expect("identity"))]);
