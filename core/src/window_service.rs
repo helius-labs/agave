@@ -212,7 +212,7 @@ where
         Some((Cow::Owned(shred), repair))
     };
     let now = Instant::now();
-    let shreds: Vec<_> = thread_pool.install(|| {
+    let shreds: Vec<(std::borrow::Cow<'_, solana_ledger::shred::Shred>, bool)> = thread_pool.install(|| {
         shreds
             .into_par_iter()
             .with_min_len(32)
