@@ -219,25 +219,6 @@ pub fn execute_batch<'a>(
         }
     };
 
-    // Emit tx_replay_start events for ClickHouse latency tracking
-    let replay_start_timestamp_us = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_micros() as u64;
-    for tx in batch.sanitized_transactions() {
-        let metadata = serde_json::json!({
-            "slot": bank.slot(),
-            "tx_sig": tx.signature().to_string(),
-        });
-        let event = clickhouse_sink::tables::agave_events::AgaveEvent {
-            event_type: "tx_replay_start".to_string(),
-            slot: bank.slot(),
-            timestamp_us: replay_start_timestamp_us,
-            metadata,
-        };
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
-    }
-
     let (commit_results, balance_collector) = batch
         .bank()
         .load_execute_and_commit_transactions_with_pre_commit_callback(
