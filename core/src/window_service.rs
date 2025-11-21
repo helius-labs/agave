@@ -212,13 +212,14 @@ where
         Some((Cow::Owned(shred), repair))
     };
     let now = Instant::now();
-    let shreds: Vec<(std::borrow::Cow<'_, solana_ledger::shred::Shred>, bool)> = thread_pool.install(|| {
-        shreds
-            .into_par_iter()
-            .with_min_len(32)
-            .filter_map(handle_shred)
-            .collect()
-    });
+    let shreds: Vec<(std::borrow::Cow<'_, solana_ledger::shred::Shred>, bool)> = thread_pool
+        .install(|| {
+            shreds
+                .into_par_iter()
+                .with_min_len(32)
+                .filter_map(handle_shred)
+                .collect()
+        });
     ws_metrics.handle_packets_elapsed_us += now.elapsed().as_micros() as u64;
     ws_metrics.num_shreds_received += shreds.len();
 
@@ -227,11 +228,12 @@ where
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-    for (shred_cow, _repair) in shreds.iter() {
+    for (shred_cow, is_repaired) in shreds.iter() {
         let shred = shred_cow.as_ref();
         let metadata = serde_json::json!({
             "slot": shred.slot(),
             "shred_index": shred.index(),
+            "is_repaired": is_repaired,
         });
         let event = clickhouse_sink::tables::agave_events::AgaveEvent {
             event_type: "shred_received".to_string(),
