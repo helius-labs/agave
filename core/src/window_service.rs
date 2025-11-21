@@ -227,7 +227,8 @@ where
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as u64;
-    for (shred, _repair) in shreds.iter() {
+    for (shred_cow, _repair) in shreds.iter() {
+        let shred = shred_cow.as_ref();
         let metadata = serde_json::json!({
             "slot": shred.slot(),
             "shred_index": shred.index(),
