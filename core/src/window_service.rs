@@ -221,6 +221,26 @@ where
     });
     ws_metrics.handle_packets_elapsed_us += now.elapsed().as_micros() as u64;
     ws_metrics.num_shreds_received += shreds.len();
+
+    // Emit shred_received events for ClickHouse latency tracking (follower path)
+    let timestamp_us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+    for (shred, _repair) in shreds.iter() {
+        let metadata = serde_json::json!({
+            "slot": shred.slot(),
+            "shred_index": shred.index(),
+        });
+        let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+            event_type: "shred_received".to_string(),
+            slot: shred.slot(),
+            timestamp_us,
+            metadata,
+        };
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
+    }
+
     let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
         shreds,
         Some(leader_schedule_cache),
