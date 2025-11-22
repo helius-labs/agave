@@ -239,6 +239,7 @@ pub fn execute_batch<'a>(
         let metadata = serde_json::json!({
             "slot": bank.slot(),
             "tx_sig": tx.signature().to_string(),
+            "path": "follower",
         });
         let event = clickhouse_sink::tables::agave_events::AgaveEvent {
             event_type: "tx_replay_complete".to_string(),

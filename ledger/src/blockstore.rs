@@ -3728,9 +3728,9 @@ impl Blockstore {
                 });
         completed_ranges
             .into_iter()
-            .map(|Range { start, end }| end - start)
-            .map(|num_shreds| {
-                shreds
+            .map(|Range { start, end }| {
+                let num_shreds = end - start;
+                let result = shreds
                     .by_ref()
                     .take(num_shreds as usize)
                     .process_results(|shreds| Shredder::deshred(shreds))?
@@ -3740,12 +3740,52 @@ impl Blockstore {
                         )))
                     })
                     .and_then(|payload| {
-                        bincode::deserialize::<Vec<Entry>>(&payload).map_err(|e| {
-                            BlockstoreError::InvalidShredData(Box::new(bincode::ErrorKind::Custom(
-                                format!("could not reconstruct entries: {e:?}"),
-                            )))
-                        })
-                    })
+                        let entries =
+                            bincode::deserialize::<Vec<Entry>>(&payload).map_err(|e| {
+                                BlockstoreError::InvalidShredData(Box::new(
+                                    bincode::ErrorKind::Custom(format!(
+                                        "could not reconstruct entries: {e:?}"
+                                    )),
+                                ))
+                            })?;
+
+                        // Emit tx_loaded_from_blockstore events with shred mapping
+                        let loaded_timestamp_us = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros() as u64;
+                        for entry in &entries {
+                            for tx in &entry.transactions {
+                                let tx_sig = tx
+                                    .signatures
+                                    .first()
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_default();
+                                if !tx_sig.is_empty() {
+                                    let metadata = serde_json::json!({
+                                        "slot": slot,
+                                        "tx_sig": tx_sig,
+                                        "shred_range_start": start,
+                                        "shred_range_end": end,
+                                    });
+                                    let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                                        event_type: "tx_loaded_from_blockstore".to_string(),
+                                        slot,
+                                        timestamp_us: loaded_timestamp_us,
+                                        metadata,
+                                    };
+                                    clickhouse_sink::sink::record(
+                                        clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+                                            event,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+
+                        Ok(entries)
+                    });
+                result
             })
             .flatten_ok()
             .collect()
