@@ -6296,7 +6296,30 @@ impl AccountsDb {
                     );
                     current_write_version = current_write_version.saturating_add(1);
 
-                    self.accounts_cache.store(slot, pubkey, account_shared_data);
+                    self.accounts_cache
+                        .store(slot, pubkey, account_shared_data.clone());
+
+                    // Emit account_stored event for ClickHouse tracking
+                    let stored_timestamp_us = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros() as u64;
+                    let metadata = serde_json::json!({
+                        "pubkey": pubkey.to_string(),
+                        "tx_sig": txn.map(|t| t.signature().to_string()).unwrap_or_default(),
+                        "write_version": current_write_version - 1,
+                        "data_len": account_shared_data.data().len(),
+                    });
+                    let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                        event_type: "account_stored".to_string(),
+                        slot,
+                        timestamp_us: stored_timestamp_us,
+                        metadata,
+                    };
+                    clickhouse_sink::sink::record(
+                        clickhouse_sink::table_batcher::TableRow::AgaveEvents(event),
+                    );
+
                     account_info
                 })
             })

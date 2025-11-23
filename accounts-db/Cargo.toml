@@ -42,6 +42,7 @@ bv = { workspace = true, features = ["serde"] }
 bytemuck = { workspace = true }
 bytemuck_derive = { workspace = true }
 bzip2 = { workspace = true }
+clickhouse-sink = { path = "../clickhouse-sink" }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true, features = ["rayon", "raw-api"] }
 indexmap = { workspace = true }
@@ -59,6 +60,7 @@ rayon = { workspace = true }
 seqlock = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_derive = { workspace = true }
+serde_json = { workspace = true }
 slab = { workspace = true }
 smallvec = { workspace = true, features = ["const_generics"] }
 solana-account = { workspace = true, features = ["serde"] }

@@ -185,6 +185,27 @@ impl AccountsUpdateNotifierImpl {
                         slot,
                         plugin.name()
                     );
+
+                    // Emit account_geyser_notified event for ClickHouse tracking
+                    let geyser_timestamp_us = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros() as u64;
+                    let metadata = serde_json::json!({
+                        "pubkey": bs58::encode(account.pubkey).into_string(),
+                        "tx_sig": account.txn.map(|t| t.signature().to_string()).unwrap_or_default(),
+                        "write_version": account.write_version,
+                        "is_startup": is_startup,
+                    });
+                    let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+                        event_type: "geyser_account_update".to_string(),
+                        slot,
+                        timestamp_us: geyser_timestamp_us,
+                        metadata,
+                    };
+                    clickhouse_sink::sink::record(
+                        clickhouse_sink::table_batcher::TableRow::AgaveEvents(event),
+                    );
                 }
             }
             measure.stop();
