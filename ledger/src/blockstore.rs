@@ -1283,6 +1283,9 @@ impl Blockstore {
         self.write_batch(shred_insertion_tracker.write_batch)?;
         start.stop();
         metrics.write_batch_elapsed_us += start.as_us();
+        if start.as_ms() > 1 {
+            warn!("MORGAN do_insert_shreds: write_batch took {}ms", start.as_ms());
+        }
 
         send_signals(
             &self.new_shreds_signals.lock().unwrap(),
@@ -3697,6 +3700,7 @@ impl Blockstore {
         completed_ranges: CompletedRanges,
         slot_meta: Option<&SlotMeta>,
     ) -> Result<Vec<Entry>> {
+        let mut measure = Measure::start("get_slot_entries_in_block");
         debug_assert!(completed_ranges
             .iter()
             .tuple_windows()
@@ -3726,7 +3730,7 @@ impl Blockstore {
                         BlockstoreError::MissingShred(slot, index)
                     })
                 });
-        completed_ranges
+        let entries = completed_ranges
             .into_iter()
             .map(|Range { start, end }| {
                 let num_shreds = end - start;
@@ -3788,7 +3792,16 @@ impl Blockstore {
                 result
             })
             .flatten_ok()
-            .collect()
+            .collect();
+        measure.stop();
+        if measure.as_ms() > 1 {
+            warn!(
+                "MORGAN get_slot_entries_in_block: took {}ms for slot {}",
+                measure.as_ms(),
+                slot
+            );
+        }
+        entries
     }
 
     pub fn get_entries_in_data_block(

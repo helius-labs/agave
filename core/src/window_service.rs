@@ -244,6 +244,7 @@ where
         clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
     }
 
+    let mut insert_measure = Measure::start("insert_shreds_handle_duplicate");
     let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
         shreds,
         Some(leader_schedule_cache),
@@ -253,6 +254,13 @@ where
         reed_solomon_cache,
         metrics,
     )?;
+    insert_measure.stop();
+    if insert_measure.as_ms() > 1 {
+        log::warn!(
+            "MORGAN window_service: insert_shreds_handle_duplicate took {}ms",
+            insert_measure.as_ms()
+        );
+    }
 
     if let Some(sender) = completed_data_sets_sender {
         sender.try_send(completed_data_sets)?;

@@ -6,8 +6,10 @@
 
 use {
     crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
+    log::warn,
     solana_entry::entry::Entry,
     solana_ledger::blockstore::{Blockstore, CompletedDataSetInfo},
+    solana_measure::measure::Measure,
     solana_rpc::{max_slots::MaxSlots, rpc_subscriptions::RpcSubscriptions},
     solana_signature::Signature,
     std::{
@@ -67,7 +69,19 @@ impl CompletedDataSetsService {
         const RECV_TIMEOUT: Duration = Duration::from_secs(1);
         let handle_completed_data_set_info = |completed_data_set_info| {
             let CompletedDataSetInfo { slot, indices } = completed_data_set_info;
-            match blockstore.get_entries_in_data_block(slot, indices.clone(), /*slot_meta:*/ None) {
+
+            let mut get_entries_measure = Measure::start("get_entries_in_data_block");
+            let entries_result = blockstore.get_entries_in_data_block(slot, indices.clone(), /*slot_meta:*/ None);
+            get_entries_measure.stop();
+            if get_entries_measure.as_ms() > 1 {
+                warn!(
+                    "MORGAN completed_data_sets_service: get_entries_in_data_block took {}ms for slot {}",
+                    get_entries_measure.as_ms(),
+                    slot
+                );
+            }
+
+            match entries_result {
                 Ok(entries) => {
                     let transactions = Self::get_transaction_signatures(entries);
                     if !transactions.is_empty() {
@@ -93,7 +107,16 @@ impl CompletedDataSetsService {
                             clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
                         }
 
+                        let mut notify_measure = Measure::start("notify_signatures_received");
                         rpc_subscriptions.notify_signatures_received((slot, transactions));
+                        notify_measure.stop();
+                        if notify_measure.as_ms() > 1 {
+                            warn!(
+                                "MORGAN completed_data_sets_service: notify_signatures_received took {}ms for slot {}",
+                                notify_measure.as_ms(),
+                                slot
+                            );
+                        }
                     }
                 }
                 Err(e) => warn!("completed-data-set-service deserialize error: {e:?}"),
