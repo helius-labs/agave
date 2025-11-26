@@ -937,6 +937,17 @@ impl Blockstore {
         }
         start.stop();
 
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "shred_insert_delay".to_string(),
+                slot: 0, // Will aggregate across all slots in this batch
+                timestamp_us: start.as_us(),
+                metadata: serde_json::json!({
+                    "shred_count": shred_count,
+                }),
+            },
+        ));
+
         metrics.insert_shreds_elapsed_us += start.as_us();
     }
 
@@ -1039,6 +1050,18 @@ impl Blockstore {
             } += 1;
         }
         start.stop();
+
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "handle_shred_recover_delay".to_string(),
+                slot: 0, // Will aggregate across all slots in this batch
+                timestamp_us: start.as_us(),
+                metadata: serde_json::json!({
+                    "shred_count": shred_count,
+                }),
+            },
+        ));
+
         metrics.shred_recovery_elapsed_us += start.as_us();
     }
 
@@ -1242,6 +1265,16 @@ impl Blockstore {
         let mut start = Measure::start("Blockstore lock");
         let _lock = self.insert_shreds_lock.lock().unwrap();
         start.stop();
+
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "insert_shreds_lock_delay".to_string(),
+                slot: 0,
+                timestamp_us: start.as_us(),
+                metadata: serde_json::json!({}),
+            },
+        ));
+
         metrics.insert_lock_elapsed_us += start.as_us();
 
         let shreds = shreds.into_iter();
@@ -1282,10 +1315,19 @@ impl Blockstore {
         let mut start = Measure::start("Write Batch");
         self.write_batch(shred_insertion_tracker.write_batch)?;
         start.stop();
+
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "shred_write_batch_delay".to_string(),
+                slot: 0, // Will aggregate across all slots in this batch
+                timestamp_us: start.as_us(),
+                metadata: serde_json::json!({
+                    "shred_count": shred_count,
+                }),
+            },
+        ));
+
         metrics.write_batch_elapsed_us += start.as_us();
-        if start.as_ms() > 1 {
-            warn!("MORGAN do_insert_shreds: write_batch took {}ms", start.as_ms());
-        }
 
         send_signals(
             &self.new_shreds_signals.lock().unwrap(),
@@ -3700,7 +3742,6 @@ impl Blockstore {
         completed_ranges: CompletedRanges,
         slot_meta: Option<&SlotMeta>,
     ) -> Result<Vec<Entry>> {
-        let mut measure = Measure::start("get_slot_entries_in_block");
         debug_assert!(completed_ranges
             .iter()
             .tuple_windows()
@@ -3793,14 +3834,6 @@ impl Blockstore {
             })
             .flatten_ok()
             .collect();
-        measure.stop();
-        if measure.as_ms() > 1 {
-            warn!(
-                "MORGAN get_slot_entries_in_block: took {}ms for slot {}",
-                measure.as_ms(),
-                slot
-            );
-        }
         entries
     }
 
@@ -4398,6 +4431,18 @@ impl Blockstore {
             self.meta_cf.put_in_batch(write_batch, *slot, meta)?;
         }
         start.stop();
+
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "shred_chaining_delay".to_string(),
+                slot: 0, // Will aggregate across all slots in this batch
+                timestamp_us: start.as_us(),
+                metadata: serde_json::json!({
+                    "shred_count": shred_count,
+                }),
+            },
+        ));
+
         metrics.chaining_elapsed_us += start.as_us();
         Ok(())
     }

@@ -201,6 +201,17 @@ where
     shred_receiver_elapsed.stop();
     ws_metrics.shred_receiver_elapsed_us += shred_receiver_elapsed.as_us();
     ws_metrics.run_insert_count += 1;
+
+    // Emit recv_delay event
+    let event = clickhouse_sink::tables::agave_events::AgaveEvent {
+        event_type: "shred_receive_delay".to_string(),
+        slot: 0,
+        timestamp_us: shred_receiver_elapsed.as_us(),
+        metadata: serde_json::json!({
+            "num_shreds": shreds.len(),
+        }),
+    };
+    clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
     let handle_shred = |(shred, repair): (shred::Payload, bool)| {
         if accept_repairs_only && !repair {
             return None;
@@ -244,7 +255,7 @@ where
         clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
     }
 
-    let mut insert_measure = Measure::start("insert_shreds_handle_duplicate");
+    let shred_count = shreds.len();
     let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
         shreds,
         Some(leader_schedule_cache),
@@ -254,13 +265,6 @@ where
         reed_solomon_cache,
         metrics,
     )?;
-    insert_measure.stop();
-    if insert_measure.as_ms() > 1 {
-        log::warn!(
-            "MORGAN window_service: insert_shreds_handle_duplicate took {}ms",
-            insert_measure.as_ms()
-        );
-    }
 
     if let Some(sender) = completed_data_sets_sender {
         sender.try_send(completed_data_sets)?;

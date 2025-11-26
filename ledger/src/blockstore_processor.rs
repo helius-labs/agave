@@ -1527,6 +1527,18 @@ pub fn confirm_slot(
             .get_slot_entries_with_shred_info(slot, progress.num_shreds, allow_dead_slots)
             .map_err(BlockstoreProcessorError::FailedToLoadEntries);
         load_elapsed.stop();
+
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "get_slot_entries_delay".to_string(),
+                slot: 0, // Will aggregate across all slots in this batch
+                timestamp_us: start.as_us(),
+                metadata: serde_json::json!({
+                    "is_err": load_result.is_err(),
+                }),
+            },
+        ));
+
         if load_result.is_err() {
             timing.fetch_fail_elapsed += load_elapsed.as_us();
         } else {
@@ -1577,7 +1589,19 @@ fn confirm_slot_entries(
 
     let confirmation_elapsed_timer = Measure::start("confirmation_elapsed");
     defer! {
-        *confirmation_elapsed += confirmation_elapsed_timer.end_as_us();
+        confirmation_elapsed_timer.end();
+
+        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
+            clickhouse_sink::tables::agave_events::AgaveEvent {
+                event_type: "slot_confirmation_delay".to_string(),
+                slot: 0, // Will aggregate across all slots in this batch
+                timestamp_us: confirmation_elapsed_timer.as_us(),
+                metadata: serde_json::json!({}),
+            },
+        ));
+
+
+        *confirmation_elapsed += confirmation_elapsed_timer.as_us();
     };
 
     let slot = bank.slot();

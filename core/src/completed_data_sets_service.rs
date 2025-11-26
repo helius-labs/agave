@@ -71,52 +71,20 @@ impl CompletedDataSetsService {
             let CompletedDataSetInfo { slot, indices } = completed_data_set_info;
 
             let mut get_entries_measure = Measure::start("get_entries_in_data_block");
-            let entries_result = blockstore.get_entries_in_data_block(slot, indices.clone(), /*slot_meta:*/ None);
+            let entries_result = blockstore.get_entries_in_data_block(
+                slot,
+                indices.clone(),
+                /*slot_meta:*/ None,
+            );
             get_entries_measure.stop();
-            if get_entries_measure.as_ms() > 1 {
-                warn!(
-                    "MORGAN completed_data_sets_service: get_entries_in_data_block took {}ms for slot {}",
-                    get_entries_measure.as_ms(),
-                    slot
-                );
-            }
 
             match entries_result {
                 Ok(entries) => {
                     let transactions = Self::get_transaction_signatures(entries);
                     if !transactions.is_empty() {
-
-                        // Emit tx_extracted events for ClickHouse latency tracking
-                        let timestamp_us = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_micros() as u64;
-                        for tx_sig in &transactions {
-                            let metadata = serde_json::json!({
-                                "slot": slot,
-                                "tx_sig": tx_sig.to_string(),
-                                "shred_range_start": indices.start,
-                                "shred_range_end": indices.end,
-                            });
-                            let event = clickhouse_sink::tables::agave_events::AgaveEvent {
-                                event_type: "tx_extracted".to_string(),
-                                slot,
-                                timestamp_us,
-                                metadata,
-                            };
-                            clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
-                        }
-
                         let mut notify_measure = Measure::start("notify_signatures_received");
-                        rpc_subscriptions.notify_signatures_received((slot, transactions));
+                        rpc_subscriptions.notify_signatures_received((slot, transactions.clone()));
                         notify_measure.stop();
-                        if notify_measure.as_ms() > 1 {
-                            warn!(
-                                "MORGAN completed_data_sets_service: notify_signatures_received took {}ms for slot {}",
-                                notify_measure.as_ms(),
-                                slot
-                            );
-                        }
                     }
                 }
                 Err(e) => warn!("completed-data-set-service deserialize error: {e:?}"),
