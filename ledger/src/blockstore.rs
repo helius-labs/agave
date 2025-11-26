@@ -942,9 +942,7 @@ impl Blockstore {
                 event_type: "shred_insert_delay".to_string(),
                 slot: 0, // Will aggregate across all slots in this batch
                 timestamp_us: start.as_us(),
-                metadata: serde_json::json!({
-                    "shred_count": shred_count,
-                }),
+                metadata: serde_json::json!({}),
             },
         ));
 
@@ -1056,9 +1054,7 @@ impl Blockstore {
                 event_type: "handle_shred_recover_delay".to_string(),
                 slot: 0, // Will aggregate across all slots in this batch
                 timestamp_us: start.as_us(),
-                metadata: serde_json::json!({
-                    "shred_count": shred_count,
-                }),
+                metadata: serde_json::json!({}),
             },
         ));
 
@@ -1321,9 +1317,7 @@ impl Blockstore {
                 event_type: "shred_write_batch_delay".to_string(),
                 slot: 0, // Will aggregate across all slots in this batch
                 timestamp_us: start.as_us(),
-                metadata: serde_json::json!({
-                    "shred_count": shred_count,
-                }),
+                metadata: serde_json::json!({}),
             },
         ));
 
@@ -4437,9 +4431,7 @@ impl Blockstore {
                 event_type: "shred_chaining_delay".to_string(),
                 slot: 0, // Will aggregate across all slots in this batch
                 timestamp_us: start.as_us(),
-                metadata: serde_json::json!({
-                    "shred_count": shred_count,
-                }),
+                metadata: serde_json::json!({}),
             },
         ));
 

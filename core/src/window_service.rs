@@ -255,7 +255,6 @@ where
         clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
     }
 
-    let shred_count = shreds.len();
     let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
         shreds,
         Some(leader_schedule_cache),

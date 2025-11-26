@@ -1532,7 +1532,7 @@ pub fn confirm_slot(
             clickhouse_sink::tables::agave_events::AgaveEvent {
                 event_type: "get_slot_entries_delay".to_string(),
                 slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: start.as_us(),
+                timestamp_us: load_elapsed.as_us(),
                 metadata: serde_json::json!({
                     "is_err": load_result.is_err(),
                 }),
@@ -1587,9 +1587,9 @@ fn confirm_slot_entries(
         ..
     } = timing;
 
-    let confirmation_elapsed_timer = Measure::start("confirmation_elapsed");
+    let mut confirmation_elapsed_timer = Measure::start("confirmation_elapsed");
     defer! {
-        confirmation_elapsed_timer.end();
+        confirmation_elapsed_timer.stop();
 
         clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
             clickhouse_sink::tables::agave_events::AgaveEvent {
