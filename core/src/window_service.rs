@@ -208,7 +208,7 @@ where
         slot: 0,
         timestamp_us: shred_receiver_elapsed.as_us(),
         metadata: serde_json::json!({
-            "num_shreds": shreds.len(),
+            "shreds_len": shreds.len(),
         }),
     };
     clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
