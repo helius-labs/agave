@@ -111,7 +111,7 @@ pub fn accounts_db_args<'a, 'b>() -> Box<[Arg<'a, 'b>]> {
             .long("accounts-db-hash-threads")
             .value_name("NUM_THREADS")
             .takes_value(true)
-            .validator(|s| is_within_range(s, 1..=num_cpus::get()))
+            .validator(|s| is_within_range(s, 1..=num_cpus::get_physical()))
             .help("Number of threads to use for background accounts hashing")
             .hidden(hidden_unless_forced()),
         Arg::with_name("accounts_db_ancient_storage_ideal_size")

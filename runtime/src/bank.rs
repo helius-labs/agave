@@ -4680,7 +4680,7 @@ impl Bank {
         } else {
             info!("Verifying accounts in foreground...");
             let start = Instant::now();
-            let num_threads = NonZeroUsize::new(num_cpus::get()).unwrap();
+            let num_threads = NonZeroUsize::new(num_cpus::get_physical()).unwrap();
             let calculated_accounts_lt_hash = if let Some(duplicates_lt_hash) = duplicates_lt_hash {
                 accounts_db.calculate_accounts_lt_hash_at_startup_from_storages(
                     snapshot_storages.0.as_slice(),
