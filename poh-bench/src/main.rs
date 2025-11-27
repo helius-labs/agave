@@ -73,7 +73,7 @@ fn main() {
     let start_hash = hash(&[1, 2, 3, 4]);
     let ticks = create_ticks(max_num_entries, hashes_per_tick, start_hash);
     let mut num_entries = start_num_entries as usize;
-    let num_threads = matches.value_of_t("num_threads").unwrap_or(num_cpus::get());
+    let num_threads = matches.value_of_t("num_threads").unwrap_or(num_cpus::get_physical());
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(|i| format!("solPohBench{i:02}"))

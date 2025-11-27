@@ -33,7 +33,7 @@ impl CoreAllocation {
         match *self {
             CoreAllocation::PinnedCores { min, max } => (min..max).collect(),
             CoreAllocation::DedicatedCoreSet { min, max } => (min..max).collect(),
-            CoreAllocation::OsDefault => Vec::from_iter(0..*CORE_COUNT.get_or_init(num_cpus::get)),
+            CoreAllocation::OsDefault => Vec::from_iter(0..*CORE_COUNT.get_or_init(num_cpus::get_physical)),
         }
     }
 }
