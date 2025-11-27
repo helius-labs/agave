@@ -51,15 +51,15 @@ pub const DEFAULT_QUIC_ENDPOINTS: usize = 1;
 pub const DEFAULT_TPU_COALESCE: Duration = Duration::from_millis(5);
 
 pub fn default_num_tpu_transaction_forward_receive_threads() -> usize {
-    num_cpus::get().min(16)
+    num_cpus::get_physical().min(16)
 }
 
 pub fn default_num_tpu_transaction_receive_threads() -> usize {
-    num_cpus::get().min(8)
+    num_cpus::get_physical().min(8)
 }
 
 pub fn default_num_tpu_vote_transaction_receive_threads() -> usize {
-    num_cpus::get().min(8)
+    num_cpus::get_physical().min(8)
 }
 
 pub struct SpawnServerResult {
@@ -629,7 +629,7 @@ impl Default for QuicServerParams {
             wait_for_chunk_timeout: DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             coalesce: DEFAULT_TPU_COALESCE,
             coalesce_channel_size: DEFAULT_MAX_COALESCE_CHANNEL_SIZE,
-            num_threads: NonZeroUsize::new(num_cpus::get().min(1)).expect("1 is non-zero"),
+            num_threads: NonZeroUsize::new(num_cpus::get_physical().min(1)).expect("1 is non-zero"),
         }
     }
 }

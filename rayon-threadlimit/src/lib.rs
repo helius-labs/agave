@@ -13,7 +13,7 @@ static MAX_RAYON_THREADS: std::sync::LazyLock<usize> = std::sync::LazyLock::new(
             );
             num_threads.parse().ok()
         })
-        .unwrap_or_else(|| num_cpus::get() / 2)
+        .unwrap_or_else(|| num_cpus::get_physical() / 2)
         .max(1)
 });
 
@@ -23,7 +23,7 @@ pub fn get_thread_count() -> usize {
 
 #[deprecated(
     since = "3.0.0",
-    note = "The solana-rayon-threadlimit crate will be removed, use num_cpus::get() or something \
+    note = "The solana-rayon-threadlimit crate will be removed, use num_cpus::get_physical() or something \
             similar instead"
 )]
 pub fn get_max_thread_count() -> usize {

@@ -26,7 +26,7 @@ pub struct ConfirmedBlockUploadConfig {
 
 impl Default for ConfirmedBlockUploadConfig {
     fn default() -> Self {
-        let num_blocks_to_upload_in_parallel = num_cpus::get() / 2;
+        let num_blocks_to_upload_in_parallel = num_cpus::get_physical() / 2;
         ConfirmedBlockUploadConfig {
             force_reupload: false,
             max_num_slots_to_check: num_blocks_to_upload_in_parallel * 4,

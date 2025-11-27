@@ -938,7 +938,7 @@ pub(crate) fn process_blockstore_for_bank_0(
     let bank_forks = BankForks::new_rw_arc(bank0);
 
     info!("Processing ledger for slot 0...");
-    let replay_tx_thread_pool = create_thread_pool(num_cpus::get());
+    let replay_tx_thread_pool = create_thread_pool(num_cpus::get_physical());
     process_bank_0(
         &bank_forks
             .read()
@@ -1017,7 +1017,7 @@ pub fn process_blockstore_from_root(
         .meta(start_slot)
         .unwrap_or_else(|_| panic!("Failed to get meta for slot {start_slot}"))
     {
-        let replay_tx_thread_pool = create_thread_pool(num_cpus::get());
+        let replay_tx_thread_pool = create_thread_pool(num_cpus::get_physical());
         load_frozen_forks(
             bank_forks,
             &start_slot_meta,

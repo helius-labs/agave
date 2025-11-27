@@ -1384,13 +1384,13 @@ pub struct AccountsDb {
 }
 
 pub fn quarter_thread_count() -> usize {
-    std::cmp::max(2, num_cpus::get() / 4)
+    std::cmp::max(2, num_cpus::get_physical() / 4)
 }
 
 /// Returns the default number of threads to use for background accounts hashing
 pub fn default_num_hash_threads() -> NonZeroUsize {
     // 1/8 of the number of cpus and up to 6 threads gives good balance for the system.
-    let num_threads = (num_cpus::get() / 8).clamp(2, 6);
+    let num_threads = (num_cpus::get_physical() / 8).clamp(2, 6);
     NonZeroUsize::new(num_threads).unwrap()
 }
 pub fn default_num_foreground_threads() -> usize {
@@ -3862,7 +3862,7 @@ impl AccountsDb {
         };
 
         if is_startup {
-            let threads = num_cpus::get();
+            let threads = num_cpus::get_physical();
             let inner_chunk_size = std::cmp::max(OUTER_CHUNK_SIZE / threads, 1);
             slots.chunks(OUTER_CHUNK_SIZE).for_each(|chunk| {
                 chunk.par_chunks(inner_chunk_size).for_each(|slots| {
@@ -6799,7 +6799,7 @@ impl AccountsDb {
             let storage_info = StorageSizeAndCountMap::default();
             let total_processed_slots_across_all_threads = AtomicU64::new(0);
             let outer_slots_len = storages.len();
-            let threads = num_cpus::get();
+            let threads = num_cpus::get_physical();
             let chunk_size = (outer_slots_len / (std::cmp::max(1, threads.saturating_sub(1)))) + 1; // approximately 400k slots in a snapshot
             let mut index_time = Measure::start("index");
             let insertion_time_us = AtomicU64::new(0);
