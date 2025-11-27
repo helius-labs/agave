@@ -1206,7 +1206,7 @@ pub fn default_num_flush_threads() -> NonZeroUsize {
 
 // Returns whether automatic compactions should be disabled for the entire
 // database based upon the given access type.
-fn should_disable_auto_compactions(_access_type: &AccessType) -> bool {
+fn should_disable_auto_compactions(access_type: &AccessType) -> bool {
     // HACK: Always disable auto compactions for geyser node performance
     !matches!(access_type, AccessType::Primary)
 }
