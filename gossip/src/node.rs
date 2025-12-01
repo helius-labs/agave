@@ -127,14 +127,14 @@ impl Node {
         }
         let socket_config = SocketConfig::default();
 
-        let (tvu_port, tvu_sockets) = multi_bind_in_range_with_config(
+        let (_tvu_port, tvu_sockets) = multi_bind_in_range_with_config(
             bind_ip_addr,
             port_range,
             socket_config,
             num_tvu_receive_sockets.get(),
         )
         .expect("tvu multi_bind");
-        let (tvu_quic_port, tvu_quic) =
+        let (_tvu_quic_port, tvu_quic) =
             bind_in_range_with_config(bind_ip_addr, port_range, socket_config)
                 .expect("tvu_quic bind");
 
