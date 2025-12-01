@@ -257,8 +257,10 @@ impl Node {
         );
 
         info.set_gossip((advertised_ip, gossip_ports[0])).unwrap();
-        info.set_tvu(UDP, (advertised_ip, tvu_port)).unwrap();
-        info.set_tvu(QUIC, (advertised_ip, tvu_quic_port)).unwrap();
+        // HACK: Advertise fake TVU port to disable normal turbine.
+        // Tachyon sends directly to port 8002.
+        info.set_tvu(UDP, (advertised_ip, 1)).unwrap();
+        info.set_tvu(QUIC, (advertised_ip, 1)).unwrap();
         info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(advertised_ip, tpu_port)))
             .unwrap();
         info.set_tpu_forwards(
