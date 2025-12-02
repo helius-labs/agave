@@ -43,6 +43,7 @@ members = [
     "geyser-plugin-interface",
     "geyser-plugin-manager",
     "clickhouse-sink",
+    "clickhouse-sink-macros",
     "gossip",
     "install",
     "io-uring",

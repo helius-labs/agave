@@ -2,6 +2,7 @@
 //! Proof of History ledger as well as iterative read, append write, and random
 //! access read to a persistent file-based ledger.
 
+use clickhouse_sink::measure_clickhouse;
 #[cfg(feature = "dev-context-only-utils")]
 use trees::{Tree, TreeWalk};
 use {
@@ -3593,6 +3594,7 @@ impl Blockstore {
 
     /// Returns the entry vector for the slot starting with `shred_start_index`, the number of
     /// shreds that comprise the entry vector, and whether the slot is full (consumed all shreds).
+    #[measure_clickhouse]
     pub fn get_slot_entries_with_shred_info(
         &self,
         slot: Slot,

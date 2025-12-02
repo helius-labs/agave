@@ -5,6 +5,7 @@ pub mod sink;
 pub mod table_batcher;
 pub mod tables;
 
+pub use clickhouse_sink_macros::measure_clickhouse;
 pub use config::ClickhouseConfig;
 
 pub async fn init(config: ClickhouseConfig) -> anyhow::Result<()> {

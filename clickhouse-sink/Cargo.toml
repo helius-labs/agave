@@ -6,6 +6,7 @@ description = "ClickHouse data sink for telemetry"
 license = "MIT"
 
 [dependencies]
+clickhouse-sink-macros = { path = "../clickhouse-sink-macros" }
 anyhow = "1.0.91"
 clickhouse = { version = "0.14.0", features = [
     "uuid",

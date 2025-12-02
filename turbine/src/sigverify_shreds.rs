@@ -4,6 +4,7 @@ use {
         retransmit_stage::RetransmitStage,
     },
     agave_feature_set as feature_set,
+    clickhouse_sink::measure_clickhouse,
     crossbeam_channel::{Receiver, RecvTimeoutError, SendError, Sender},
     itertools::{Either, Itertools},
     log::*,
@@ -138,6 +139,7 @@ pub fn spawn_shred_sigverify(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[measure_clickhouse]
 fn run_shred_sigverify<const K: usize>(
     thread_pool: &ThreadPool,
     keypair: &Keypair,

@@ -9,6 +9,7 @@ use {
         use_snapshot_archives_at_startup::UseSnapshotArchivesAtStartup,
     },
     chrono_humanize::{Accuracy, HumanTime, Tense},
+    clickhouse_sink::measure_clickhouse,
     crossbeam_channel::Sender,
     itertools::Itertools,
     log::*,
@@ -1564,6 +1565,7 @@ pub fn confirm_slot(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[measure_clickhouse]
 fn confirm_slot_entries(
     bank: &BankWithScheduler,
     replay_tx_thread_pool: &ThreadPool,
