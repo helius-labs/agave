@@ -938,15 +938,6 @@ impl Blockstore {
         }
         start.stop();
 
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "shred_insert_delay".to_string(),
-                slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: start.as_us(),
-                metadata: serde_json::json!({}),
-            },
-        ));
-
         metrics.insert_shreds_elapsed_us += start.as_us();
     }
 
@@ -1049,15 +1040,6 @@ impl Blockstore {
             } += 1;
         }
         start.stop();
-
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "handle_shred_recover_delay".to_string(),
-                slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: start.as_us(),
-                metadata: serde_json::json!({}),
-            },
-        ));
 
         metrics.shred_recovery_elapsed_us += start.as_us();
     }
@@ -1263,15 +1245,6 @@ impl Blockstore {
         let _lock = self.insert_shreds_lock.lock().unwrap();
         start.stop();
 
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "insert_shreds_lock_delay".to_string(),
-                slot: 0,
-                timestamp_us: start.as_us(),
-                metadata: serde_json::json!({}),
-            },
-        ));
-
         metrics.insert_lock_elapsed_us += start.as_us();
 
         let shreds = shreds.into_iter();
@@ -1312,15 +1285,6 @@ impl Blockstore {
         let mut start = Measure::start("Write Batch");
         self.write_batch(shred_insertion_tracker.write_batch)?;
         start.stop();
-
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "shred_write_batch_delay".to_string(),
-                slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: start.as_us(),
-                metadata: serde_json::json!({}),
-            },
-        ));
 
         metrics.write_batch_elapsed_us += start.as_us();
 
@@ -4428,15 +4392,6 @@ impl Blockstore {
         }
         start.stop();
 
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "shred_chaining_delay".to_string(),
-                slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: start.as_us(),
-                metadata: serde_json::json!({}),
-            },
-        ));
-
         metrics.chaining_elapsed_us += start.as_us();
         Ok(())
     }
@@ -4616,24 +4571,6 @@ impl Blockstore {
             let meta_backup = &slot_meta_entry.old_slot_meta;
             if !completed_slots_senders.is_empty() && is_newly_completed_slot(meta, meta_backup) {
                 newly_completed_slots.push(*slot);
-
-                // Emit slot_complete event for ClickHouse latency tracking
-                let slot_complete_timestamp_us = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_micros() as u64;
-                let metadata = serde_json::json!({
-                    "slot": slot,
-                });
-                let event = clickhouse_sink::tables::agave_events::AgaveEvent {
-                    event_type: "slot_complete".to_string(),
-                    slot: *slot,
-                    timestamp_us: slot_complete_timestamp_us,
-                    metadata,
-                };
-                clickhouse_sink::sink::record(
-                    clickhouse_sink::table_batcher::TableRow::AgaveEvents(event),
-                );
             }
             // Check if the working copy of the metadata has changed
             if Some(meta) != meta_backup.as_ref() {

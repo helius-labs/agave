@@ -11,6 +11,7 @@ use {
         result::{Error, Result},
     },
     agave_feature_set as feature_set,
+    clickhouse_sink::measure_clickhouse,
     crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender},
     rayon::{prelude::*, ThreadPool},
     solana_clock::{Slot, DEFAULT_MS_PER_SLOT},
@@ -178,6 +179,7 @@ fn run_check_duplicate(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[measure_clickhouse]
 fn run_insert<F>(
     thread_pool: &ThreadPool,
     verified_receiver: &Receiver<Vec<(shred::Payload, /*is_repaired:*/ bool)>>,
@@ -202,16 +204,6 @@ where
     ws_metrics.shred_receiver_elapsed_us += shred_receiver_elapsed.as_us();
     ws_metrics.run_insert_count += 1;
 
-    // Emit recv_delay event
-    let event = clickhouse_sink::tables::agave_events::AgaveEvent {
-        event_type: "shred_receive_delay".to_string(),
-        slot: 0,
-        timestamp_us: shred_receiver_elapsed.as_us(),
-        metadata: serde_json::json!({
-            "shreds_len": shreds.len(),
-        }),
-    };
-    clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(event));
     let handle_shred = |(shred, repair): (shred::Payload, bool)| {
         if accept_repairs_only && !repair {
             return None;

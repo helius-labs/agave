@@ -147,6 +147,7 @@ fn create_thread_pool(num_threads: usize) -> ThreadPool {
         .expect("new rayon threadpool")
 }
 
+#[measure_clickhouse]
 pub fn execute_batch<'a>(
     batch: &'a TransactionBatchWithIndexes<impl TransactionWithMeta>,
     bank: &'a Arc<Bank>,
@@ -661,6 +662,7 @@ pub fn process_entries_for_tests(
     result
 }
 
+#[measure_clickhouse]
 fn process_entries(
     bank: &BankWithScheduler,
     replay_tx_thread_pool: &ThreadPool,
@@ -1075,6 +1077,7 @@ pub fn process_blockstore_from_root(
 }
 
 /// Verify that a segment of entries has the correct number of ticks and hashes
+#[measure_clickhouse]
 fn verify_ticks(
     bank: &Bank,
     mut entries: &[Entry],
@@ -1529,17 +1532,6 @@ pub fn confirm_slot(
             .map_err(BlockstoreProcessorError::FailedToLoadEntries);
         load_elapsed.stop();
 
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "get_slot_entries_delay".to_string(),
-                slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: load_elapsed.as_us(),
-                metadata: serde_json::json!({
-                    "is_err": load_result.is_err(),
-                }),
-            },
-        ));
-
         if load_result.is_err() {
             timing.fetch_fail_elapsed += load_elapsed.as_us();
         } else {
@@ -1565,7 +1557,6 @@ pub fn confirm_slot(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[measure_clickhouse]
 fn confirm_slot_entries(
     bank: &BankWithScheduler,
     replay_tx_thread_pool: &ThreadPool,
@@ -1592,16 +1583,6 @@ fn confirm_slot_entries(
     let mut confirmation_elapsed_timer = Measure::start("confirmation_elapsed");
     defer! {
         confirmation_elapsed_timer.stop();
-
-        clickhouse_sink::sink::record(clickhouse_sink::table_batcher::TableRow::AgaveEvents(
-            clickhouse_sink::tables::agave_events::AgaveEvent {
-                event_type: "slot_confirmation_delay".to_string(),
-                slot: 0, // Will aggregate across all slots in this batch
-                timestamp_us: confirmation_elapsed_timer.as_us(),
-                metadata: serde_json::json!({}),
-            },
-        ));
-
 
         *confirmation_elapsed += confirmation_elapsed_timer.as_us();
     };

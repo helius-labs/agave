@@ -414,6 +414,7 @@ pub fn verify_transactions<Tx: TransactionWithMeta + Send + Sync>(
     })
 }
 
+#[clickhouse_sink::measure_clickhouse]
 pub fn start_verify_transactions<Tx: TransactionWithMeta + Send + Sync + 'static>(
     entries: Vec<Entry>,
     skip_verification: bool,

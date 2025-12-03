@@ -21,6 +21,7 @@ dev-context-only-utils = []
 
 [dependencies]
 bincode = { workspace = true }
+clickhouse-sink = { path = "../clickhouse-sink" }
 crossbeam-channel = { workspace = true }
 dlopen2 = { workspace = true }
 log = { workspace = true }
@@ -28,6 +29,7 @@ num_cpus = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 solana-hash = { workspace = true }
 solana-measure = { workspace = true }
 solana-merkle-tree = { workspace = true }
