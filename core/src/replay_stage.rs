@@ -33,6 +33,7 @@ use {
         window_service::DuplicateSlotReceiver,
     },
     agave_votor::root_utils,
+    clickhouse_sink::measure_clickhouse,
     crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
     rayon::{prelude::*, ThreadPool},
     solana_accounts_db::contains::Contains,
@@ -2971,6 +2972,7 @@ impl ReplayStage {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[measure_clickhouse]
     fn replay_active_bank(
         blockstore: &Blockstore,
         bank_forks: &RwLock<BankForks>,
@@ -3052,6 +3054,7 @@ impl ReplayStage {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[measure_clickhouse]
     fn process_replay_results(
         blockstore: &Blockstore,
         bank_forks: &RwLock<BankForks>,
@@ -3354,6 +3357,7 @@ impl ReplayStage {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[measure_clickhouse]
     fn replay_active_banks(
         blockstore: &Blockstore,
         bank_forks: &RwLock<BankForks>,
