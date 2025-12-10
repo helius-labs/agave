@@ -36,6 +36,7 @@ solana-packet = { workspace = true }
 solana-perf = { workspace = true }
 solana-runtime-transaction = { workspace = true }
 solana-sha256-hasher = { workspace = true }
+solana-signature = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 
@@ -48,7 +49,6 @@ solana-logger = { workspace = true }
 solana-message = { workspace = true }
 solana-perf = { workspace = true, features = ["dev-context-only-utils"] }
 solana-pubkey = { workspace = true }
-solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-transaction = { workspace = true }
 solana-transaction = { workspace = true, features = ["verify"] }
