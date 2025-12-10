@@ -1075,6 +1075,17 @@ pub fn process_blockstore_from_root(
     Ok(())
 }
 
+/// Wrapper for PoH verification start with clickhouse measurement
+#[measure_clickhouse]
+fn start_poh_verify(
+    entries: &[Entry],
+    last_entry: &Hash,
+    thread_pool: &ThreadPool,
+    recyclers: VerifyRecyclers,
+) -> entry::EntryVerificationState {
+    entries.start_verify(last_entry, thread_pool, recyclers)
+}
+
 /// Verify that a segment of entries has the correct number of ticks and hashes
 #[measure_clickhouse]
 fn verify_ticks(
@@ -1644,7 +1655,8 @@ fn confirm_slot_entries(
     let last_entry_hash = entries.last().map(|e| e.hash);
     let verifier = if !skip_verification {
         datapoint_debug!("verify-batch-size", ("size", num_entries as i64, i64));
-        let entry_state = entries.start_verify(
+        let entry_state = start_poh_verify(
+            &entries,
             &progress.last_entry,
             replay_tx_thread_pool,
             recyclers.clone(),
