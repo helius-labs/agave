@@ -1081,9 +1081,10 @@ fn start_poh_verify(
     entries: &[Entry],
     last_entry: &Hash,
     thread_pool: &ThreadPool,
-    recyclers: VerifyRecyclers,
+    _recyclers: VerifyRecyclers,
 ) -> entry::EntryVerificationState {
-    entries.start_verify(last_entry, thread_pool, recyclers)
+    let entry_signatures = entry::EntrySignatures::from_entries(entries);
+    entry::start_verify_entries(entry_signatures, last_entry, thread_pool)
 }
 
 /// Verify that a segment of entries has the correct number of ticks and hashes

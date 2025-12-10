@@ -23,6 +23,7 @@ use {
         sigverify,
     },
     solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
+    solana_signature::Signature,
     solana_transaction::{
         versioned::VersionedTransaction, Transaction, TransactionVerificationMode,
     },
@@ -211,17 +212,117 @@ impl Entry {
     }
 }
 
+/// Lightweight representation of an Entry for PoH verification.
+/// Contains only the data needed to verify the hash chain.
+#[derive(Debug, Clone)]
+pub struct EntrySignatures {
+    pub num_hashes: u64,
+    pub hash: Hash,
+    pub signatures: Vec<Signature>,
+}
+
+impl EntrySignatures {
+    pub fn from_entry(entry: &Entry) -> Self {
+        Self {
+            num_hashes: entry.num_hashes,
+            hash: entry.hash,
+            signatures: entry
+                .transactions
+                .iter()
+                .flat_map(|tx| tx.signatures.iter().cloned())
+                .collect(),
+        }
+    }
+
+    pub fn from_entries(entries: &[Entry]) -> Vec<Self> {
+        entries.iter().map(Self::from_entry).collect()
+    }
+
+    /// Verifies this entry's hash is the result of hashing `start_hash` `num_hashes` times,
+    /// with transaction signatures mixed in if present.
+    pub fn verify(&self, start_hash: &Hash) -> bool {
+        let ref_hash = if self.num_hashes == 0 && self.signatures.is_empty() {
+            *start_hash
+        } else {
+            let mut poh = Poh::new(*start_hash, None);
+            poh.hash(self.num_hashes.saturating_sub(1));
+            if self.signatures.is_empty() {
+                poh.tick().unwrap().hash
+            } else {
+                poh.record(hash_signatures(&self.signatures)).unwrap().hash
+            }
+        };
+        if self.hash != ref_hash {
+            warn!(
+                "next_hash is invalid expected: {:?} actual: {:?}",
+                self.hash, ref_hash
+            );
+            return false;
+        }
+        true
+    }
+}
+
 pub fn hash_transactions(transactions: &[VersionedTransaction]) -> Hash {
     // a hash of a slice of transactions only needs to hash the signatures
     let signatures: Vec<_> = transactions
         .iter()
         .flat_map(|tx| tx.signatures.iter())
         .collect();
-    let merkle_tree = MerkleTree::new(&signatures);
+    hash_signatures(&signatures)
+}
+
+fn hash_signatures(signatures: &[impl AsRef<[u8]>]) -> Hash {
+    let merkle_tree = MerkleTree::new(signatures);
     if let Some(root_hash) = merkle_tree.get_root() {
         *root_hash
     } else {
         Hash::default()
+    }
+}
+
+/// Start async PoH verification for a list of entry signatures.
+/// Returns immediately with a pending state; call `finish_verify` to get the result.
+pub fn start_verify_entries(
+    entries: Vec<EntrySignatures>,
+    start_hash: &Hash,
+    thread_pool: &ThreadPool,
+) -> EntryVerificationState {
+    let (sender, receiver) = crossbeam_channel::bounded(1);
+    let start_hash = *start_hash;
+
+    thread_pool.spawn(move || {
+        let now = Instant::now();
+        let genesis = [EntrySignatures {
+            num_hashes: 0,
+            hash: start_hash,
+            signatures: vec![],
+        }];
+
+        let entry_pairs = genesis.par_iter().chain(&entries).zip(&entries);
+        let res = entry_pairs.all(|(prev, entry)| {
+            let r = entry.verify(&prev.hash);
+            if !r {
+                warn!(
+                    "entry invalid!: prev: {:?}, entry: {:?} num sigs: {}",
+                    prev.hash,
+                    entry.hash,
+                    entry.signatures.len()
+                );
+            }
+            r
+        });
+
+        let duration_us = now.elapsed().as_micros() as u64;
+        let _ = sender.send((res, duration_us));
+    });
+
+    EntryVerificationState {
+        verification_status: EntryVerificationStatus::Pending,
+        poh_duration_us: 0, // will be set in finish_verify
+        device_verification_data: DeviceVerificationData::CpuAsync(CpuVerificationData {
+            receiver,
+        }),
     }
 }
 
@@ -263,8 +364,16 @@ pub struct GpuVerificationData {
     verifications: Option<Vec<(VerifyAction, Hash)>>,
 }
 
+/// Data for async CPU verification via rayon spawn + channel
+pub struct CpuVerificationData {
+    receiver: crossbeam_channel::Receiver<(bool, u64)>, // (result, duration_us)
+}
+
 pub enum DeviceVerificationData {
-    Cpu(),
+    /// Sync CPU verification (already completed)
+    Cpu,
+    /// Async CPU verification (pending result in channel)
+    CpuAsync(CpuVerificationData),
     Gpu(GpuVerificationData),
 }
 
@@ -382,8 +491,21 @@ impl EntryVerificationState {
                 };
                 res
             }
-            DeviceVerificationData::Cpu() => {
+            DeviceVerificationData::Cpu => {
                 self.verification_status == EntryVerificationStatus::Success
+            }
+            DeviceVerificationData::CpuAsync(verification_data) => {
+                let (res, duration_us) = verification_data
+                    .receiver
+                    .recv()
+                    .expect("CPU verification channel closed unexpectedly");
+                self.poh_duration_us = duration_us;
+                self.verification_status = if res {
+                    EntryVerificationStatus::Success
+                } else {
+                    EntryVerificationStatus::Failure
+                };
+                res
             }
         }
     }
@@ -669,7 +791,7 @@ impl EntrySlice for [Entry] {
                 EntryVerificationStatus::Failure
             },
             poh_duration_us,
-            device_verification_data: DeviceVerificationData::Cpu(),
+            device_verification_data: DeviceVerificationData::Cpu,
         }
     }
 
@@ -757,7 +879,7 @@ impl EntrySlice for [Entry] {
                 EntryVerificationStatus::Failure
             },
             poh_duration_us,
-            device_verification_data: DeviceVerificationData::Cpu(),
+            device_verification_data: DeviceVerificationData::Cpu,
         }
     }
 
