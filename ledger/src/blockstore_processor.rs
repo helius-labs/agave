@@ -1617,10 +1617,11 @@ fn confirm_slot_entries(
     let last_entry_hash = entries.last().map(|e| e.hash);
     let verifier = if !skip_verification {
         datapoint_debug!("verify-batch-size", ("size", num_entries as i64, i64));
-        let entry_state = entries.start_verify(
+        let entry_signatures = entry::EntrySignatures::from_entries(&entries);
+        let entry_state = entry::start_verify_entries(
+            entry_signatures,
             &progress.last_entry,
             replay_tx_thread_pool,
-            recyclers.clone(),
         );
         if entry_state.status() == EntryVerificationStatus::Failure {
             warn!("Ledger proof of history failed at slot: {slot}");
