@@ -1595,24 +1595,22 @@ fn confirm_slot_entries(
          num_txs: {num_txs}, slot_full: {slot_full}",
     );
 
-    if !skip_verification {
-        let tick_hash_count = &mut progress.tick_hash_count;
-        verify_ticks(bank, &entries, slot_full, tick_hash_count).map_err(|err| {
-            warn!(
-                "{:#?}, slot: {}, entry len: {}, tick_height: {}, last entry: {}, last_blockhash: \
+    let tick_hash_count = &mut progress.tick_hash_count;
+    verify_ticks(bank, &entries, slot_full, tick_hash_count).map_err(|err| {
+        warn!(
+            "{:#?}, slot: {}, entry len: {}, tick_height: {}, last entry: {}, last_blockhash: \
                  {}, shred_index: {}, slot_full: {}",
-                err,
-                slot,
-                num_entries,
-                bank.tick_height(),
-                progress.last_entry,
-                bank.last_blockhash(),
-                num_shreds,
-                slot_full,
-            );
-            err
-        })?;
-    }
+            err,
+            slot,
+            num_entries,
+            bank.tick_height(),
+            progress.last_entry,
+            bank.last_blockhash(),
+            num_shreds,
+            slot_full,
+        );
+        err
+    })?;
 
     let last_entry_hash = entries.last().map(|e| e.hash);
     let verifier = if !skip_verification {
