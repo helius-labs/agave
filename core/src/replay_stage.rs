@@ -2468,7 +2468,7 @@ impl ReplayStage {
         // All errors must lead to marking the slot as dead, otherwise,
         // the `check_slot_agrees_with_cluster()` called by `replay_active_banks()`
         // will break!
-        let skip_verification = TRUSTED_LEADERS.contains(bank.collector_id());
+        let skip_verification = TRUSTED_LEADERS.contains(bank.leader_id());
         blockstore_processor::confirm_slot(
             blockstore,
             bank,
