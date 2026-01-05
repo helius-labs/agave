@@ -1245,6 +1245,9 @@ pub struct ConfirmationTiming {
     /// microseconds.
     pub fetch_fail_elapsed: u64,
 
+    /// Number of times `confirm_slot_entries` was called for this slot.
+    pub num_confirm_slot_entries_calls: u64,
+
     /// `batch_execute()` measurements.
     pub batch_execute: BatchExecutionTiming,
 }
@@ -1259,6 +1262,7 @@ impl Default for ConfirmationTiming {
             transaction_verify_elapsed: 0,
             fetch_elapsed: 0,
             fetch_fail_elapsed: 0,
+            num_confirm_slot_entries_calls: 0,
             batch_execute: BatchExecutionTiming::default(),
         }
     }
@@ -1431,6 +1435,7 @@ impl ReplaySlotStats {
                 ("total_transactions", num_txs as i64, i64),
                 ("total_entries", num_entries as i64, i64),
                 ("total_shreds", num_shreds as i64, i64),
+                ("num_confirm_slot_entries_calls", self.num_confirm_slot_entries_calls as i64, i64),
                 // Everything inside the `eager!` block will be eagerly expanded before
                 // evaluation of the rest of the surrounding macro.
                 eager!{report_execute_timings!(self.batch_execute.totals, is_unified_scheduler_enabled)}
@@ -1588,9 +1593,12 @@ fn confirm_slot_entries(
         replay_elapsed,
         poh_verify_elapsed,
         transaction_verify_elapsed,
+        num_confirm_slot_entries_calls,
         batch_execute: batch_execute_timing,
         ..
     } = timing;
+
+    *num_confirm_slot_entries_calls += 1;
 
     let mut confirmation_elapsed_timer = Measure::start("confirmation_elapsed");
     defer! {

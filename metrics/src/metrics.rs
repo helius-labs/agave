@@ -170,6 +170,222 @@ impl MetricsWriter for InfluxDbMetricsWriter {
     }
 }
 
+#[derive(Debug, Default)]
+struct ClickHouseConfig {
+    pub host: String,
+    pub database: String,
+    pub table: String,
+    pub username: String,
+    pub password: String,
+}
+
+impl ClickHouseConfig {
+    fn complete(&self) -> bool {
+        !(self.host.is_empty() || self.database.is_empty() || self.table.is_empty())
+    }
+}
+
+fn get_clickhouse_config() -> Result<ClickHouseConfig, MetricsError> {
+    let mut config = ClickHouseConfig::default();
+    let config_var = env::var("SOLANA_CLICKHOUSE_CONFIG")?;
+    if config_var.is_empty() {
+        Err(env::VarError::NotPresent)?;
+    }
+
+    for pair in config_var.split(',') {
+        let nv: Vec<_> = pair.split('=').collect();
+        if nv.len() != 2 {
+            return Err(MetricsError::ConfigInvalid(pair.to_string()));
+        }
+        let v = nv[1].to_string();
+        match nv[0] {
+            "host" => config.host = v,
+            "db" => config.database = v,
+            "table" => config.table = v,
+            "u" => config.username = v,
+            "p" => config.password = v,
+            _ => return Err(MetricsError::ConfigInvalid(pair.to_string())),
+        }
+    }
+
+    if !config.complete() {
+        return Err(MetricsError::ConfigIncomplete);
+    }
+
+    Ok(config)
+}
+
+struct ClickHouseMetricsWriter {
+    write_url: Option<String>,
+    table: Option<String>,
+}
+
+impl ClickHouseMetricsWriter {
+    fn new() -> Self {
+        match Self::build_config() {
+            Ok((write_url, table)) => Self {
+                write_url: Some(write_url),
+                table: Some(table),
+            },
+            Err(err) => {
+                info!("ClickHouse metrics disabled: {}", err);
+                Self {
+                    write_url: None,
+                    table: None,
+                }
+            }
+        }
+    }
+
+    fn build_config() -> Result<(String, String), MetricsError> {
+        let config = get_clickhouse_config()?;
+
+        info!(
+            "ClickHouse metrics configuration: host={} db={} table={} username={}",
+            config.host, config.database, config.table, config.username
+        );
+
+        let write_url = if config.username.is_empty() {
+            format!("{}/?database={}", config.host, config.database)
+        } else {
+            format!(
+                "{}/?database={}&user={}&password={}",
+                config.host, config.database, config.username, config.password
+            )
+        };
+
+        Ok((write_url, config.table))
+    }
+}
+
+/// Serialize datapoints to ClickHouse JSONEachRow format for insertion.
+/// Each line is a JSON object representing one row.
+pub fn serialize_points_clickhouse(points: &Vec<DataPoint>, host_id: &str) -> String {
+    let mut output = String::new();
+    for point in points {
+        let timestamp_ns = point
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        // Build a JSON object for each point
+        output.push_str("{");
+        output.push_str(&format!("\"measurement\":\"{}\"", point.name));
+        output.push_str(&format!(",\"host_id\":\"{}\"", host_id));
+        output.push_str(&format!(",\"timestamp\":{}", timestamp_ns));
+
+        // Add tags as a JSON object
+        output.push_str(",\"tags\":{");
+        for (i, (name, value)) in point.tags.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            // Escape the tag value for JSON
+            let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
+            output.push_str(&format!("\"{}\":\"{}\"", name, escaped_value));
+        }
+        output.push_str("}");
+
+        // Add fields as a JSON object
+        output.push_str(",\"fields\":{");
+        for (i, (name, value)) in point.fields.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            // Parse the InfluxDB-formatted value and convert to JSON
+            let json_value = convert_influx_value_to_json(value);
+            output.push_str(&format!("\"{}\":{}", name, json_value));
+        }
+        output.push_str("}");
+
+        output.push_str("}\n");
+    }
+    output
+}
+
+/// Simple percent-encoding for URL query parameters.
+fn percent_encode(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len() * 3);
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    encoded
+}
+
+/// Convert an InfluxDB-formatted field value to JSON format.
+/// InfluxDB formats: "123i" (i64), "123.45" (f64), "true"/"false" (bool), "\"string\"" (string)
+fn convert_influx_value_to_json(value: &str) -> String {
+    // Integer: ends with 'i'
+    if value.ends_with('i') {
+        return value[..value.len() - 1].to_string();
+    }
+    // Boolean
+    if value == "true" || value == "false" {
+        return value.to_string();
+    }
+    // String: starts and ends with quotes
+    if value.starts_with('"') && value.ends_with('"') {
+        return value.to_string(); // Already JSON-formatted
+    }
+    // Float or other numeric
+    if value.parse::<f64>().is_ok() {
+        return value.to_string();
+    }
+    // Fallback: treat as string
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+impl MetricsWriter for ClickHouseMetricsWriter {
+    fn write(&self, points: Vec<DataPoint>) {
+        let (Some(ref write_url), Some(ref table)) = (&self.write_url, &self.table) else {
+            return;
+        };
+
+        debug!("ClickHouse: submitting {} points", points.len());
+
+        let host_id = HOST_ID.read().unwrap();
+        let body = serialize_points_clickhouse(&points, &host_id);
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build();
+        let client = match client {
+            Ok(client) => client,
+            Err(err) => {
+                warn!("ClickHouse client instantiation failed: {}", err);
+                return;
+            }
+        };
+
+        let query = format!("INSERT INTO {} FORMAT JSONEachRow", table);
+        let url = format!("{}&query={}", write_url, percent_encode(&query));
+
+        let response = client.post(&url).body(body).send();
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                if !status.is_success() {
+                    let text = resp
+                        .text()
+                        .unwrap_or_else(|_| "[text body empty]".to_string());
+                    warn!("ClickHouse submit unsuccessful: {} {}", status, text);
+                }
+            }
+            Err(err) => {
+                warn!("ClickHouse submit error: {}", err);
+            }
+        }
+    }
+}
+
 impl Default for MetricsAgent {
     fn default() -> Self {
         let max_points_per_sec = env::var("SOLANA_METRICS_MAX_POINTS_PER_SECOND")
@@ -179,11 +395,15 @@ impl Default for MetricsAgent {
             })
             .unwrap_or(4000);
 
-        Self::new(
-            Arc::new(InfluxDbMetricsWriter::new()),
-            Duration::from_secs(10),
-            max_points_per_sec,
-        )
+        // Check for ClickHouse config first, fall back to InfluxDB
+        let writer: Arc<dyn MetricsWriter + Send + Sync> =
+            if env::var("SOLANA_CLICKHOUSE_CONFIG").is_ok() {
+                Arc::new(ClickHouseMetricsWriter::new())
+            } else {
+                Arc::new(InfluxDbMetricsWriter::new())
+            };
+
+        Self::new(writer, Duration::from_secs(10), max_points_per_sec)
     }
 }
 
