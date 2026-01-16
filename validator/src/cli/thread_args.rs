@@ -202,7 +202,7 @@ pub trait ThreadArg {
     /// The maximum allowed number of threads (inclusive)
     fn max() -> usize {
         // By default, no thread pool should scale over the number of the machine's threads
-        num_cpus::get()
+        num_cpus::get_physical()
     }
     /// The range of allowed number of threads (inclusive on both ends)
     fn range() -> RangeInclusive<usize> {
@@ -284,7 +284,7 @@ impl ThreadArg for RayonGlobalThreadsArg {
     const HELP: &'static str = "Number of threads to use for the global rayon thread pool";
 
     fn default() -> usize {
-        num_cpus::get()
+        num_cpus::get_physical()
     }
 }
 
@@ -312,7 +312,7 @@ impl ThreadArg for ReplayTransactionsThreadsArg {
     const HELP: &'static str = "Number of threads to use for transaction replay";
 
     fn default() -> usize {
-        num_cpus::get()
+        num_cpus::get_physical()
     }
 }
 
