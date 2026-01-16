@@ -1030,7 +1030,7 @@ pub struct AccountsDb {
 }
 
 pub fn quarter_thread_count() -> usize {
-    std::cmp::max(2, num_cpus::get() / 4)
+    std::cmp::max(2, num_cpus::get_physical() / 4)
 }
 
 pub fn default_num_foreground_threads() -> usize {
@@ -3389,7 +3389,7 @@ impl AccountsDb {
         };
 
         if is_startup {
-            let threads = num_cpus::get();
+            let threads = num_cpus::get_physical();
             let inner_chunk_size = std::cmp::max(OUTER_CHUNK_SIZE / threads, 1);
             slots.chunks(OUTER_CHUNK_SIZE).for_each(|chunk| {
                 chunk.par_chunks(inner_chunk_size).for_each(|slots| {
@@ -6286,7 +6286,7 @@ impl AccountsDb {
             AccountStoragesOrderer::with_random_order(&storages).into_concurrent_consumer();
         let exit_logger = AtomicBool::new(false);
         let num_processed = AtomicU64::new(0);
-        let num_threads = num_cpus::get();
+        let num_threads = num_cpus::get_physical();
         let mut index_time = Measure::start("index");
         thread::scope(|s| {
             let thread_handles = (0..num_threads)

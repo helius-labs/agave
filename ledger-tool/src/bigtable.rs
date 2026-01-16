@@ -710,7 +710,7 @@ async fn copy(args: CopyArgs) -> Result<(), Box<dyn std::error::Error>> {
         s.send(i).unwrap();
     }
 
-    let workers = min(to_slot - from_slot + 1, num_cpus::get().try_into().unwrap());
+    let workers = min(to_slot - from_slot + 1, num_cpus::get_physical().try_into().unwrap());
     debug!("worker num: {workers}");
 
     let success_slots = Arc::new(Mutex::new(vec![]));
