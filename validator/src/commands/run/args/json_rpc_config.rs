@@ -12,9 +12,9 @@ static DEFAULT_HEALTH_CHECK_SLOT_DISTANCE: LazyLock<String> = LazyLock::new(|| {
 });
 static DEFAULT_MAX_MULTIPLE_ACCOUNTS: LazyLock<String> =
     LazyLock::new(|| solana_rpc_client_api::request::MAX_MULTIPLE_ACCOUNTS.to_string());
-static DEFAULT_RPC_THREADS: LazyLock<String> = LazyLock::new(|| num_cpus::get().to_string());
+static DEFAULT_RPC_THREADS: LazyLock<String> = LazyLock::new(|| num_cpus::get_physical().to_string());
 static DEFAULT_RPC_BLOCKING_THREADS: LazyLock<String> =
-    LazyLock::new(|| (1.max(num_cpus::get() / 4)).to_string());
+    LazyLock::new(|| (1.max(num_cpus::get_physical() / 4)).to_string());
 const DEFAULT_RPC_NICENESS_ADJ: &str = "0";
 static DEFAULT_RPC_MAX_REQUEST_BODY_SIZE: LazyLock<String> =
     LazyLock::new(|| solana_rpc::rpc::MAX_REQUEST_BODY_SIZE.to_string());
@@ -470,14 +470,14 @@ pub(super) mod tests {
 
     #[test]
     fn test_default_rpc_threads_unchanged() {
-        assert_eq!(*DEFAULT_RPC_THREADS, num_cpus::get().to_string());
+        assert_eq!(*DEFAULT_RPC_THREADS, num_cpus::get_physical().to_string());
     }
 
     #[test]
     fn test_default_rpc_blocking_threads_unchanged() {
         assert_eq!(
             *DEFAULT_RPC_BLOCKING_THREADS,
-            (1.max(num_cpus::get() / 4)).to_string(),
+            (1.max(num_cpus::get_physical() / 4)).to_string(),
         );
     }
 

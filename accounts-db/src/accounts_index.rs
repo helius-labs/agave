@@ -279,7 +279,7 @@ impl Default for AccountsIndexConfig {
 }
 
 pub fn default_num_flush_threads() -> NonZeroUsize {
-    NonZeroUsize::new(std::cmp::max(2, num_cpus::get() / 4)).expect("non-zero system threads")
+    NonZeroUsize::new(std::cmp::max(2, num_cpus::get_physical() / 4)).expect("non-zero system threads")
 }
 
 #[derive(Debug, Default)]
