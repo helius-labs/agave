@@ -387,7 +387,7 @@ pub struct ValidatorConfig {
 impl ValidatorConfig {
     pub fn default_for_test() -> Self {
         let max_thread_count =
-            NonZeroUsize::new(num_cpus::get()).expect("thread count is non-zero");
+            NonZeroUsize::new(num_cpus::get_physical()).expect("thread count is non-zero");
 
         Self {
             halt_at_slot: None,
