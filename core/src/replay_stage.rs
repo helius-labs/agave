@@ -100,7 +100,7 @@ use {
         num::{NonZeroUsize, Saturating},
         result,
         sync::{
-            Arc, LazyLock, RwLock,
+            Arc, RwLock,
             atomic::{AtomicBool, AtomicU64, Ordering},
         },
         thread::{self, Builder, JoinHandle},
@@ -117,28 +117,6 @@ pub const DUPLICATE_THRESHOLD: f64 = 1.0 - SWITCH_FORK_THRESHOLD - DUPLICATE_LIV
 pub(crate) const MAX_VOTE_SIGNATURES: usize = 200;
 const MAX_VOTE_REFRESH_INTERVAL_MILLIS: usize = 5000;
 const MAX_REPAIR_RETRY_LOOP_ATTEMPTS: usize = 10;
-
-static TRUSTED_LEADERS: LazyLock<&[Pubkey]> = LazyLock::new(|| {
-    let leaders: &[Pubkey] = std::env::var("TRUSTED_LEADERS")
-        .map(|env_var| {
-            env_var
-                .split(',')
-                .filter_map(|s| s.parse().ok())
-                .collect::<Vec<Pubkey>>()
-        })
-        .unwrap_or_default()
-        .leak();
-
-    if !leaders.is_empty() {
-        info!(
-            "Loaded {} trusted leaders from env: {:?}",
-            leaders.len(),
-            leaders
-        );
-    }
-
-    leaders
-});
 
 #[cfg(test)]
 static_assertions::const_assert!(REFRESH_VOTE_BLOCKHEIGHT < solana_clock::MAX_PROCESSING_AGE);
@@ -2468,14 +2446,13 @@ impl ReplayStage {
         // All errors must lead to marking the slot as dead, otherwise,
         // the `check_slot_agrees_with_cluster()` called by `replay_active_banks()`
         // will break!
-        let skip_verification = TRUSTED_LEADERS.contains(bank.collector_id());
         blockstore_processor::confirm_slot(
             blockstore,
             bank,
             replay_tx_thread_pool,
             &mut w_replay_stats,
             &mut w_replay_progress,
-            skip_verification,
+            false,
             transaction_status_sender,
             entry_notification_sender,
             Some(replay_vote_sender),
