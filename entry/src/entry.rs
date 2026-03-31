@@ -724,7 +724,7 @@ pub fn thread_pool_for_tests() -> ThreadPool {
 #[cfg(feature = "dev-context-only-utils")]
 pub fn thread_pool_for_benches() -> ThreadPool {
     rayon::ThreadPoolBuilder::new()
-        .num_threads(num_cpus::get())
+        .num_threads(num_cpus::get_physical())
         .thread_name(|i| format!("solEntryBnch{i:02}"))
         .build()
         .expect("new rayon threadpool")

@@ -270,7 +270,7 @@ impl Tvu {
                 key_updater: bls_key_updater,
             } = {
                 let quic_server_params = QuicStreamerConfig {
-                    num_threads: NonZeroUsize::new(4.min(num_cpus::get())).unwrap(),
+                    num_threads: NonZeroUsize::new(4.min(num_cpus::get_physical())).unwrap(),
                     ..Default::default()
                 };
                 let qos_config = SimpleQosConfig {

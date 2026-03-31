@@ -304,7 +304,7 @@ mod tests {
     fn test_default_rocksdb_compaction_threads_unchanged() {
         assert_eq!(
             *DEFAULT_ROCKSDB_COMPACTION_THREADS,
-            num_cpus::get().to_string(),
+            num_cpus::get_physical().to_string(),
         );
     }
 
@@ -312,7 +312,7 @@ mod tests {
     fn test_valid_range_rocksdb_compaction_threads_unchanged() {
         assert_eq!(
             RocksdbCompactionThreadsArg::range(),
-            RangeInclusive::new(1, num_cpus::get()),
+            RangeInclusive::new(1, num_cpus::get_physical()),
         );
     }
 
@@ -320,7 +320,7 @@ mod tests {
     fn test_default_rocksdb_flush_threads_unchanged() {
         assert_eq!(
             *DEFAULT_ROCKSDB_FLUSH_THREADS,
-            (num_cpus::get() / 4).max(1).to_string()
+            (num_cpus::get_physical() / 4).max(1).to_string()
         );
     }
 
@@ -328,7 +328,7 @@ mod tests {
     fn test_valid_range_rocksdb_flush_threads_unchanged() {
         assert_eq!(
             RocksdbFlushThreadsArg::range(),
-            RangeInclusive::new(1, num_cpus::get()),
+            RangeInclusive::new(1, num_cpus::get_physical()),
         );
     }
 

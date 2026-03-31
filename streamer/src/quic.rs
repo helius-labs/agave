@@ -67,15 +67,15 @@ pub const DEFAULT_QUIC_ENDPOINTS: usize = 1;
 const CONNECTION_RECEIVE_WINDOW_BYTES: VarInt = VarInt::from_u32(8 * 1024 * 1024);
 
 pub fn default_num_tpu_transaction_forward_receive_threads() -> usize {
-    num_cpus::get().min(16)
+    num_cpus::get_physical().min(16)
 }
 
 pub fn default_num_tpu_transaction_receive_threads() -> usize {
-    num_cpus::get().min(8)
+    num_cpus::get_physical().min(8)
 }
 
 pub fn default_num_tpu_vote_transaction_receive_threads() -> usize {
-    num_cpus::get().min(8)
+    num_cpus::get_physical().min(8)
 }
 
 pub struct SpawnServerResult {
@@ -586,7 +586,7 @@ impl Default for QuicStreamerConfig {
         Self {
             max_connections_per_ipaddr_per_min: DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE,
             wait_for_chunk_timeout: DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-            num_threads: NonZeroUsize::new(num_cpus::get().min(1)).expect("1 is non-zero"),
+            num_threads: NonZeroUsize::new(num_cpus::get_physical().min(1)).expect("1 is non-zero"),
         }
     }
 }

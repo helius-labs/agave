@@ -502,7 +502,7 @@ pub fn threadpool_for_tests() -> rayon::ThreadPool {
 
 #[cfg(feature = "dev-context-only-utils")]
 pub fn threadpool_for_benches() -> rayon::ThreadPool {
-    let num_threads = (num_cpus::get() / 2).max(1);
+    let num_threads = (num_cpus::get_physical() / 2).max(1);
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(|i| format!("solSigVerBnch{i:02}"))
