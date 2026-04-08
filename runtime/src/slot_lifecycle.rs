@@ -9,20 +9,23 @@
 //!    Records: per-slot vote accumulation thresholds (10%, 25%, 50%, 66.7%),
 //!    vote source breakdown (gossip vs replay).
 //!
-//! Both emit structured log lines with rdtsc-derived microsecond timings.
-//! Correlate by slot number and wallclock anchors in ClickHouse.
+//! Data flows to a dedicated ClickHouse `slot_lifecycle` table via a background
+//! thread using `reqwest::blocking` (JSONEachRow format). Configured via env var:
+//!   `SLOT_LIFECYCLE_CLICKHOUSE=url=http://host:port,db=default,user=default,password=...`
 //!
 //! # Safety
 //! Uses `std::arch::x86_64::_rdtsc()` — safe: read-only, no side effects,
 //! monotonic on modern x86_64 (invariant TSC).
 
 use {
+    serde::Serialize,
     solana_clock::Slot,
     std::{
         collections::HashMap,
         sync::{
             OnceLock,
             atomic::{AtomicU64, Ordering},
+            mpsc,
         },
         time::{Duration, Instant, SystemTime},
     },
@@ -30,7 +33,6 @@ use {
 
 // --- TSC utilities ---
 
-/// Read CPU timestamp counter. ~1-2ns overhead.
 #[inline(always)]
 pub fn rdtsc() -> u64 {
     // SAFETY: _rdtsc is always safe to call on x86_64.
@@ -70,6 +72,166 @@ fn wallclock_us() -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_micros() as u64
+}
+
+fn hostname() -> &'static str {
+    static HOSTNAME: OnceLock<String> = OnceLock::new();
+    HOSTNAME.get_or_init(|| {
+        gethostname::gethostname()
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+// =============================================================================
+// ClickHouse sink — reqwest::blocking, JSONEachRow format
+// =============================================================================
+
+const TABLE: &str = "slot_lifecycle";
+const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
+const FLUSH_BATCH_SIZE: usize = 1024;
+const CHANNEL_SIZE: usize = 100_000;
+
+/// Row written to the `slot_lifecycle` ClickHouse table.
+#[derive(Debug, Serialize)]
+struct SlotLifecycleRow {
+    host: &'static str,
+    slot: u64,
+    event_type: &'static str,
+    created_bank_wallclock_us: u64,
+    first_vote_wallclock_us: u64,
+    created_to_frozen_us: i64,
+    created_to_confirmed_us: i64,
+    created_to_root_us: i64,
+    frozen_to_confirmed_us: i64,
+    confirmed_to_root_us: i64,
+    first_vote_to_10pct_us: i64,
+    first_vote_to_25pct_us: i64,
+    first_vote_to_50pct_us: i64,
+    first_vote_to_66pct_us: i64,
+    gossip_votes: u32,
+    replay_votes: u32,
+    total_votes: u32,
+    confirmed_by_gossip: bool,
+}
+
+struct SinkConfig {
+    /// Full INSERT URL: `http://host:port/?database=db&user=u&password=p&query=INSERT+INTO+...`
+    insert_url: String,
+}
+
+static SINK_TX: OnceLock<Option<mpsc::SyncSender<SlotLifecycleRow>>> = OnceLock::new();
+
+fn init_sink() -> Option<mpsc::SyncSender<SlotLifecycleRow>> {
+    let config_str = std::env::var("SLOT_LIFECYCLE_CLICKHOUSE").ok()?;
+    let mut url = String::new();
+    let mut db = "default".to_string();
+    let mut user = "default".to_string();
+    let mut password = String::new();
+
+    for pair in config_str.split(',') {
+        let mut parts = pair.splitn(2, '=');
+        let key = parts.next()?;
+        let val = parts.next().unwrap_or("");
+        match key {
+            "url" => url = val.to_string(),
+            "db" => db = val.to_string(),
+            "user" => user = val.to_string(),
+            "password" => password = val.to_string(),
+            _ => {}
+        }
+    }
+
+    if url.is_empty() {
+        return None;
+    }
+
+    let insert_url = format!(
+        "{url}/?database={db}&user={user}&password={password}\
+         &query=INSERT%20INTO%20{TABLE}%20FORMAT%20JSONEachRow"
+    );
+
+    log::info!("SlotLifecycle ClickHouse sink: url={url} db={db}");
+
+    let config = SinkConfig { insert_url };
+    let (tx, rx) = mpsc::sync_channel::<SlotLifecycleRow>(CHANNEL_SIZE);
+
+    std::thread::Builder::new()
+        .name("slotLifecycleCH".to_string())
+        .spawn(move || flush_loop(config, rx))
+        .expect("failed to spawn slot lifecycle CH thread");
+
+    Some(tx)
+}
+
+fn flush_loop(config: SinkConfig, rx: mpsc::Receiver<SlotLifecycleRow>) {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("failed to build reqwest client");
+
+    let mut batch: Vec<SlotLifecycleRow> = Vec::with_capacity(FLUSH_BATCH_SIZE);
+    let mut last_flush = Instant::now();
+
+    loop {
+        match rx.try_recv() {
+            Ok(row) => {
+                batch.push(row);
+                if batch.len() >= FLUSH_BATCH_SIZE {
+                    flush(&client, &config, &mut batch);
+                    last_flush = Instant::now();
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                if last_flush.elapsed() >= FLUSH_INTERVAL && !batch.is_empty() {
+                    flush(&client, &config, &mut batch);
+                    last_flush = Instant::now();
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                flush(&client, &config, &mut batch);
+                log::info!("SlotLifecycle CH sink exiting");
+                break;
+            }
+        }
+    }
+}
+
+fn flush(client: &reqwest::blocking::Client, config: &SinkConfig, batch: &mut Vec<SlotLifecycleRow>) {
+    if batch.is_empty() {
+        return;
+    }
+
+    let mut body = String::new();
+    for row in batch.iter() {
+        if let Ok(json) = serde_json::to_string(row) {
+            body.push_str(&json);
+            body.push('\n');
+        }
+    }
+    let count = batch.len();
+    batch.clear();
+
+    match client.post(&config.insert_url).body(body).send() {
+        Ok(resp) if resp.status().is_success() => {}
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.text().unwrap_or_default();
+            log::warn!("SlotLifecycle CH flush failed ({count} rows): {status} {text}");
+        }
+        Err(e) => {
+            log::warn!("SlotLifecycle CH flush failed ({count} rows): {e}");
+        }
+    }
+}
+
+/// Send a row to the ClickHouse sink (if configured). Non-blocking.
+fn ch_record(row: SlotLifecycleRow) {
+    let tx = SINK_TX.get_or_init(|| init_sink());
+    if let Some(tx) = tx {
+        let _ = tx.try_send(row);
+    }
 }
 
 // =============================================================================
@@ -116,22 +278,26 @@ impl SlotLifecycle {
         let confirmed = self.optimistic_confirmation_tsc.load(Ordering::Relaxed);
         let root = self.root_tsc.load(Ordering::Relaxed);
 
-        log::info!(
-            "slot_bank_lifecycle slot={} \
-             created_bank_wallclock_us={} \
-             created_to_frozen_us={} \
-             created_to_confirmed_us={} \
-             created_to_root_us={} \
-             frozen_to_confirmed_us={} \
-             confirmed_to_root_us={}",
+        ch_record(SlotLifecycleRow {
+            host: hostname(),
             slot,
-            self.created_bank_wallclock_us.load(Ordering::Relaxed),
-            tsc_delta_us(frozen, created),
-            tsc_delta_us(confirmed, created),
-            tsc_delta_us(root, created),
-            tsc_delta_us(confirmed, frozen),
-            tsc_delta_us(root, confirmed),
-        );
+            event_type: "bank_lifecycle",
+            created_bank_wallclock_us: self.created_bank_wallclock_us.load(Ordering::Relaxed),
+            created_to_frozen_us: tsc_delta_us(frozen, created),
+            created_to_confirmed_us: tsc_delta_us(confirmed, created),
+            created_to_root_us: tsc_delta_us(root, created),
+            frozen_to_confirmed_us: tsc_delta_us(confirmed, frozen),
+            confirmed_to_root_us: tsc_delta_us(root, confirmed),
+            first_vote_wallclock_us: 0,
+            first_vote_to_10pct_us: -1,
+            first_vote_to_25pct_us: -1,
+            first_vote_to_50pct_us: -1,
+            first_vote_to_66pct_us: -1,
+            gossip_votes: 0,
+            replay_votes: 0,
+            total_votes: 0,
+            confirmed_by_gossip: false,
+        });
     }
 }
 
@@ -216,28 +382,26 @@ impl VoteLifecycleTracker {
         let Some(t) = self.slots.get(&slot) else { return };
         let base = t.first_vote_tsc;
 
-        log::info!(
-            "slot_vote_lifecycle slot={} \
-             first_vote_wallclock_us={} \
-             first_vote_to_10pct_us={} \
-             first_vote_to_25pct_us={} \
-             first_vote_to_50pct_us={} \
-             first_vote_to_66pct_us={} \
-             gossip_votes={} \
-             replay_votes={} \
-             total_votes={} \
-             confirmed_by_gossip={}",
+        ch_record(SlotLifecycleRow {
+            host: hostname(),
             slot,
-            t.first_vote_wallclock_us,
-            tsc_delta_us(t.thresholds_tsc[0], base),
-            tsc_delta_us(t.thresholds_tsc[1], base),
-            tsc_delta_us(t.thresholds_tsc[2], base),
-            tsc_delta_us(t.thresholds_tsc[3], base),
-            t.gossip_vote_count,
-            t.replay_vote_count,
-            t.gossip_vote_count + t.replay_vote_count,
-            t.confirmed_by_gossip,
-        );
+            event_type: "vote_lifecycle",
+            first_vote_wallclock_us: t.first_vote_wallclock_us,
+            first_vote_to_10pct_us: tsc_delta_us(t.thresholds_tsc[0], base),
+            first_vote_to_25pct_us: tsc_delta_us(t.thresholds_tsc[1], base),
+            first_vote_to_50pct_us: tsc_delta_us(t.thresholds_tsc[2], base),
+            first_vote_to_66pct_us: tsc_delta_us(t.thresholds_tsc[3], base),
+            gossip_votes: t.gossip_vote_count,
+            replay_votes: t.replay_vote_count,
+            total_votes: t.gossip_vote_count + t.replay_vote_count,
+            confirmed_by_gossip: t.confirmed_by_gossip,
+            created_bank_wallclock_us: 0,
+            created_to_frozen_us: -1,
+            created_to_confirmed_us: -1,
+            created_to_root_us: -1,
+            frozen_to_confirmed_us: -1,
+            confirmed_to_root_us: -1,
+        });
     }
 
     pub fn prune(&mut self, root: Slot) {
