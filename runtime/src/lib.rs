@@ -31,6 +31,7 @@ mod read_optimized_dashmap;
 pub mod rent_collector;
 pub mod runtime_config;
 pub mod serde_snapshot;
+pub mod slot_lifecycle;
 pub mod snapshot_bank_utils;
 pub mod snapshot_controller;
 pub mod snapshot_minimizer;

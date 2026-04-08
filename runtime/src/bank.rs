@@ -921,6 +921,10 @@ pub struct Bank {
     /// This is used to avoid recalculating the same epoch rewards at epoch boundary.
     /// The hashmap is keyed by parent_hash.
     epoch_rewards_calculation_cache: Arc<Mutex<HashMap<Hash, Arc<PartitionedRewardsCalculation>>>>,
+
+    /// Per-slot lifecycle instrumentation for confirmation latency measurement.
+    /// Not serialized — runtime-only, stamped by various threads via atomics.
+    pub slot_lifecycle: crate::slot_lifecycle::SlotLifecycle,
 }
 
 #[derive(Debug)]
@@ -1125,6 +1129,7 @@ impl Bank {
             block_id: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::default(),
             epoch_rewards_calculation_cache: Arc::new(Mutex::new(HashMap::default())),
+            slot_lifecycle: Default::default(),
         };
 
         bank.transaction_processor =
@@ -1372,6 +1377,7 @@ impl Bank {
             block_id: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::default(),
             epoch_rewards_calculation_cache: parent.epoch_rewards_calculation_cache.clone(),
+            slot_lifecycle: Default::default(),
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1865,6 +1871,7 @@ impl Bank {
             block_id: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::new(&fields.bank_hash_stats),
             epoch_rewards_calculation_cache: Arc::new(Mutex::new(HashMap::default())),
+            slot_lifecycle: Default::default(),
         };
 
         // Sanity assertions between bank snapshot and genesis config

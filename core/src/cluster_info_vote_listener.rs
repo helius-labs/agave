@@ -328,6 +328,7 @@ impl ClusterInfoVoteListener {
         let mut confirmation_verifier = OptimisticConfirmationVerifier::new(bank_hash_cache.root());
         let mut latest_vote_slot_per_validator = HashMap::new();
         let mut last_process_root = Instant::now();
+        let mut lifecycle_tracker = solana_runtime::slot_lifecycle::VoteLifecycleTracker::new();
         let duplicate_confirmed_slot_sender = Some(duplicate_confirmed_slot_sender);
         let mut vote_processing_time = Some(VoteProcessingTiming::default());
         loop {
@@ -348,6 +349,7 @@ impl ClusterInfoVoteListener {
                     &unrooted_optimistic_slots,
                 );
                 vote_tracker.progress_with_new_root_bank(&root_bank);
+                lifecycle_tracker.prune(root_bank.slot());
                 last_process_root = Instant::now();
             }
             let confirmed_slots = Self::listen_and_confirm_votes(
@@ -364,6 +366,7 @@ impl ClusterInfoVoteListener {
                 &mut latest_vote_slot_per_validator,
                 bank_hash_cache,
                 &dumped_slot_subscription,
+                &mut lifecycle_tracker,
             );
             match confirmed_slots {
                 Ok(confirmed_slots) => {
@@ -398,6 +401,7 @@ impl ClusterInfoVoteListener {
         latest_vote_slot_per_validator: &mut HashMap<Pubkey, Slot>,
         bank_hash_cache: &mut BankHashCache,
         dumped_slot_subscription: &Mutex<bool>,
+        lifecycle_tracker: &mut solana_runtime::slot_lifecycle::VoteLifecycleTracker,
     ) -> Result<ThresholdConfirmedSlots> {
         let mut sel = Select::new();
         sel.recv(gossip_vote_txs_receiver);
@@ -430,6 +434,7 @@ impl ClusterInfoVoteListener {
                     latest_vote_slot_per_validator,
                     bank_hash_cache,
                     dumped_slot_subscription,
+                    lifecycle_tracker,
                 ));
             }
             remaining_wait_time = remaining_wait_time.saturating_sub(start.elapsed());
@@ -455,6 +460,7 @@ impl ClusterInfoVoteListener {
         latest_vote_slot_per_validator: &mut HashMap<Pubkey, Slot>,
         bank_hash_cache: &mut BankHashCache,
         dumped_slot_subscription: &Mutex<bool>,
+        lifecycle_tracker: &mut solana_runtime::slot_lifecycle::VoteLifecycleTracker,
     ) {
         if vote.is_empty() {
             return;
@@ -519,14 +525,19 @@ impl ClusterInfoVoteListener {
                 // Fast track processing of the last slot in a vote transactions
                 // so that notifications for optimistic confirmation can be sent
                 // as soon as possible.
-                let (reached_threshold_results, is_new) = Self::track_optimistic_confirmation_vote(
-                    vote_tracker,
-                    slot,
-                    hash,
-                    *vote_pubkey,
-                    stake,
-                    total_stake,
-                );
+                let (reached_threshold_results, is_new, cumulative_stake) =
+                    Self::track_optimistic_confirmation_vote(
+                        vote_tracker,
+                        slot,
+                        hash,
+                        *vote_pubkey,
+                        stake,
+                        total_stake,
+                    );
+
+                if is_new && stake > 0 {
+                    lifecycle_tracker.record_vote(slot, cumulative_stake, total_stake, is_gossip_vote);
+                }
 
                 if is_gossip_vote && is_new && stake > 0 {
                     let _ = gossip_verified_vote_hash_sender.send((*vote_pubkey, slot, hash));
@@ -615,6 +626,7 @@ impl ClusterInfoVoteListener {
         latest_vote_slot_per_validator: &mut HashMap<Pubkey, Slot>,
         bank_hash_cache: &mut BankHashCache,
         dumped_slot_subscription: &Mutex<bool>,
+        lifecycle_tracker: &mut solana_runtime::slot_lifecycle::VoteLifecycleTracker,
     ) -> ThresholdConfirmedSlots {
         let mut diff: HashMap<Slot, HashMap<Pubkey, bool>> = HashMap::new();
         let mut new_optimistic_confirmed_slots = vec![];
@@ -644,6 +656,7 @@ impl ClusterInfoVoteListener {
                 latest_vote_slot_per_validator,
                 bank_hash_cache,
                 dumped_slot_subscription,
+                lifecycle_tracker,
             );
         }
         gossip_vote_txn_processing_time.stop();
@@ -710,8 +723,7 @@ impl ClusterInfoVoteListener {
         new_optimistic_confirmed_slots
     }
 
-    // Returns if the slot was optimistically confirmed, and whether
-    // the slot was new
+    // Returns (reached_threshold_results, is_new, cumulative_stake)
     fn track_optimistic_confirmation_vote(
         vote_tracker: &VoteTracker,
         slot: Slot,
@@ -719,14 +731,16 @@ impl ClusterInfoVoteListener {
         pubkey: Pubkey,
         stake: u64,
         total_epoch_stake: u64,
-    ) -> (Vec<bool>, bool) {
+    ) -> (Vec<bool>, bool, u64) {
         let slot_tracker = vote_tracker.get_or_insert_slot_tracker(slot);
         // Insert vote and check for optimistic confirmation
         let mut w_slot_tracker = slot_tracker.write().unwrap();
 
-        w_slot_tracker
-            .get_or_insert_optimistic_votes_tracker(hash)
-            .add_vote_pubkey(pubkey, stake, total_epoch_stake, &THRESHOLDS_TO_CHECK)
+        let tracker = w_slot_tracker.get_or_insert_optimistic_votes_tracker(hash);
+        let (reached, is_new) =
+            tracker.add_vote_pubkey(pubkey, stake, total_epoch_stake, &THRESHOLDS_TO_CHECK);
+        let cumulative_stake = tracker.stake();
+        (reached, is_new, cumulative_stake)
     }
 
     fn sum_stake(sum: &mut u64, epoch_stakes: Option<&VersionedEpochStakes>, pubkey: &Pubkey) {
@@ -740,6 +754,7 @@ impl ClusterInfoVoteListener {
 mod tests {
     use {
         super::*,
+        solana_runtime::slot_lifecycle::VoteLifecycleTracker,
         itertools::Itertools,
         solana_hash::Hash,
         solana_keypair::Keypair,
@@ -1656,6 +1671,7 @@ mod tests {
             ))
             .unwrap();
 
+        let mut lifecycle_tracker = VoteLifecycleTracker::new();
         ClusterInfoVoteListener::track_new_votes_and_notify_confirmations(
             vote,
             &vote_pubkey,
@@ -1673,6 +1689,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut lifecycle_tracker,
         );
         assert_eq!(diff.keys().copied().sorted().collect_vec(), vec![1, 2, 6]);
 
@@ -1706,6 +1723,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut lifecycle_tracker,
         );
         assert_eq!(diff.keys().copied().sorted().collect_vec(), vec![7, 8]);
     }
