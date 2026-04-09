@@ -331,6 +331,20 @@ impl ClusterInfoVoteListener {
         let mut lifecycle_tracker = solana_runtime::slot_lifecycle::VoteLifecycleTracker::new();
         let duplicate_confirmed_slot_sender = Some(duplicate_confirmed_slot_sender);
         let mut vote_processing_time = Some(VoteProcessingTiming::default());
+
+        // Emit current epoch stake map at startup
+        {
+            let root_bank = bank_hash_cache.get_root_bank_and_prune_cache();
+            let epoch = root_bank.epoch();
+            if let Some(epoch_stakes) = root_bank.epoch_stakes(epoch) {
+                solana_runtime::slot_lifecycle::record_epoch_stakes(
+                    epoch,
+                    epoch_stakes.stakes().vote_accounts(),
+                    epoch_stakes.total_stake(),
+                );
+            }
+        }
+
         loop {
             if exit.load(Ordering::Relaxed) {
                 return Ok(());
@@ -536,7 +550,7 @@ impl ClusterInfoVoteListener {
                     );
 
                 if is_new && stake > 0 {
-                    lifecycle_tracker.record_vote(slot, cumulative_stake, total_stake, is_gossip_vote);
+                    lifecycle_tracker.record_vote(slot, epoch, vote_pubkey, stake, cumulative_stake, total_stake, is_gossip_vote);
                 }
 
                 if is_gossip_vote && is_new && stake > 0 {

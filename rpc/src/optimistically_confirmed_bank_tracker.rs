@@ -383,7 +383,7 @@ impl OptimisticallyConfirmedBankTracker {
             BankNotification::NewRootBank(bank) => {
                 let root_slot = bank.slot();
                 bank.slot_lifecycle.stamp_root();
-                bank.slot_lifecycle.log_lifecycle(root_slot);
+                bank.slot_lifecycle.log_lifecycle(root_slot, bank.epoch());
                 let mut w_optimistically_confirmed_bank =
                     optimistically_confirmed_bank.write().unwrap();
                 if root_slot > w_optimistically_confirmed_bank.bank.slot() {

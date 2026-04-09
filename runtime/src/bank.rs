@@ -2249,6 +2249,11 @@ impl Bank {
                     .collect();
                 trace!("new epoch stakes, stakes: {vote_stakes:#?}");
             }
+            crate::slot_lifecycle::record_epoch_stakes(
+                leader_schedule_epoch,
+                new_epoch_stakes.stakes().vote_accounts(),
+                new_epoch_stakes.total_stake(),
+            );
             self.epoch_stakes
                 .insert(leader_schedule_epoch, new_epoch_stakes);
         }
