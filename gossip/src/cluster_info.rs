@@ -931,6 +931,12 @@ impl ClusterInfo {
         txs
     }
 
+    /// Returns the vote notification condvar for signal-based wakeup.
+    /// Clone the Arc once at init; wait on it instead of sleeping.
+    pub fn vote_notify(&self) -> std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)> {
+        self.gossip.crds.read().unwrap().vote_notify.clone()
+    }
+
     /// Returns votes and the associated labels inserted since the given cursor.
     pub fn get_votes_with_labels(
         &self,

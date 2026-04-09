@@ -49,7 +49,7 @@ use {
         cmp::Ordering,
         collections::{hash_map, BTreeMap, HashMap, VecDeque},
         ops::{Bound, Index, IndexMut},
-        sync::Mutex,
+        sync::{Arc, Condvar, Mutex},
     },
 };
 
@@ -84,6 +84,9 @@ pub struct Crds {
     // Mapping from nodes' pubkeys to their respective shred-version.
     shred_versions: HashMap<Pubkey, u16>,
     stats: Mutex<CrdsStats>,
+    /// Notifies recv_loop when a vote is inserted into CRDS.
+    /// Arc is cloned once by recv_loop at init; signaled on each Vote insert.
+    pub(crate) vote_notify: Arc<(Mutex<bool>, Condvar)>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -181,6 +184,7 @@ impl Default for Crds {
             purged: VecDeque::default(),
             shred_versions: HashMap::default(),
             stats: Mutex::<CrdsStats>::default(),
+            vote_notify: Arc::new((Mutex::new(false), Condvar::new())),
         }
     }
 }
@@ -242,6 +246,10 @@ impl Crds {
                     }
                     CrdsData::Vote(_, _) => {
                         self.votes.insert(value.ordinal, entry_index);
+                        // Wake recv_loop to process this vote immediately
+                        let (lock, cvar) = &*self.vote_notify;
+                        *lock.lock().unwrap() = true;
+                        cvar.notify_one();
                     }
                     CrdsData::EpochSlots(_, _) => {
                         self.epoch_slots.insert(value.ordinal, entry_index);

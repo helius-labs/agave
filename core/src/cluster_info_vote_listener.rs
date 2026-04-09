@@ -48,7 +48,7 @@ use {
             atomic::{AtomicBool, Ordering},
             Arc, Mutex, RwLock,
         },
-        thread::{self, sleep, Builder, JoinHandle},
+        thread::{self, Builder, JoinHandle},
         time::{Duration, Instant},
     },
 };
@@ -257,6 +257,8 @@ impl ClusterInfoVoteListener {
         verified_vote_transactions_sender: VerifiedVoteTransactionsSender,
     ) -> Result<()> {
         let mut cursor = Cursor::default();
+        // Clone the condvar Arc once — no CRDS lock held during wait
+        let vote_notify = cluster_info.vote_notify();
         while !exit.load(Ordering::Relaxed) {
             let votes = cluster_info.get_votes(&mut cursor);
             inc_new_counter_debug!("cluster_info_vote_listener-recv_count", votes.len());
@@ -265,7 +267,18 @@ impl ClusterInfoVoteListener {
                 verified_vote_transactions_sender.send(vote_txs)?;
                 verified_packets_sender.send(BankingPacketBatch::new(packets))?;
             }
-            sleep(Duration::from_millis(GOSSIP_SLEEP_MILLIS));
+            // Wait for new votes instead of fixed sleep.
+            // Wakes immediately when a vote is inserted into CRDS.
+            // Falls back to GOSSIP_SLEEP_MILLIS timeout as safety net.
+            let (lock, cvar) = &*vote_notify;
+            let mut has_new = lock.lock().unwrap();
+            if !*has_new {
+                has_new = cvar
+                    .wait_timeout(has_new, Duration::from_millis(GOSSIP_SLEEP_MILLIS))
+                    .unwrap()
+                    .0;
+            }
+            *has_new = false;
         }
         Ok(())
     }
