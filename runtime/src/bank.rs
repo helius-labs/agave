@@ -574,6 +574,7 @@ impl PartialEq for Bank {
             block_id,
             bank_hash_stats: _,
             epoch_rewards_calculation_cache: _,
+            slot_lifecycle: _,
             // Ignore new fields explicitly if they do not impact PartialEq.
             // Adding ".." will remove compile-time checks that if a new field
             // is added to the struct, this PartialEq is accordingly updated.

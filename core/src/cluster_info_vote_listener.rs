@@ -942,6 +942,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut VoteLifecycleTracker::new(),
         )
         .unwrap();
 
@@ -977,6 +978,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut VoteLifecycleTracker::new(),
         )
         .unwrap();
 
@@ -1071,6 +1073,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut VoteLifecycleTracker::new(),
         )
         .unwrap();
 
@@ -1241,6 +1244,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut VoteLifecycleTracker::new(),
         )
         .unwrap();
 
@@ -1354,6 +1358,7 @@ mod tests {
                     &mut latest_vote_slot_per_validator,
                     &mut bank_hash_cache,
                     &Mutex::new(false),
+                    &mut VoteLifecycleTracker::new(),
                 );
             }
             let slot_vote_tracker = vote_tracker.get_slot_vote_tracker(vote_slot).unwrap();
@@ -1429,6 +1434,7 @@ mod tests {
 
         let (verified_vote_sender, _verified_vote_receiver) = unbounded();
         let (gossip_verified_vote_hash_sender, _gossip_verified_vote_hash_receiver) = unbounded();
+        let mut lifecycle_tracker = VoteLifecycleTracker::new();
         ClusterInfoVoteListener::filter_and_confirm_with_new_votes(
             &vote_tracker,
             vote_tx,
@@ -1449,6 +1455,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut lifecycle_tracker,
         );
 
         // Setup next epoch
@@ -1498,6 +1505,7 @@ mod tests {
             &mut latest_vote_slot_per_validator,
             &mut bank_hash_cache,
             &Mutex::new(false),
+            &mut lifecycle_tracker,
         );
     }
 
