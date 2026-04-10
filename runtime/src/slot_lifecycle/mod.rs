@@ -10,9 +10,11 @@ mod tsc;
 mod vote_tracker;
 
 pub use bank_lifecycle::SlotLifecycle;
+pub use sink::{GossipPeerRow, TableRow, record};
+pub use tsc::{hostname, now_datetime};
 pub use vote_tracker::VoteLifecycleTracker;
 
-use sink::{EpochStakeRow, TableRow};
+use sink::EpochStakeRow;
 
 /// Record the full epoch stake map to ClickHouse. Called at startup and epoch boundaries.
 pub fn record_epoch_stakes(

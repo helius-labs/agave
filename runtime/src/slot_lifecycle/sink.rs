@@ -75,16 +75,33 @@ pub struct EpochStakeRow {
     pub total_epoch_stake: u64,
 }
 
+/// Row for the `gossip_peer_stats` table. Emitted every ~2s from gossip stats.
+#[derive(Debug, Serialize, Row)]
+pub struct GossipPeerRow {
+    #[serde(with = "clickhouse::serde::time::datetime64::micros")]
+    pub timestamp: OffsetDateTime,
+    pub host: &'static str,
+    pub num_nodes: u64,
+    pub num_nodes_staked: u64,
+    pub num_pubkeys: u64,
+    pub table_size: u64,
+    pub purged_values_size: u64,
+    pub tvu_peers: u64,
+    pub get_votes_count: u64,
+}
+
 const FLUSH_BATCH_SIZE: usize = 10_000;
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const CHANNEL_SIZE: usize = 1_000_000;
 
 /// Multiplexed row enum — dispatched to the correct table in the flush loop.
+#[allow(dead_code)] // GossipPeer constructed in solana-gossip crate
 pub enum TableRow {
     BankLifecycle(BankLifecycleRow),
     VoteLifecycle(VoteLifecycleRow),
     Vote(SlotVoteRow),
     EpochStake(EpochStakeRow),
+    GossipPeer(GossipPeerRow),
 }
 
 // --- Table batcher ---
@@ -94,6 +111,7 @@ struct TableBatcher {
     vote_lifecycle_batch: Vec<VoteLifecycleRow>,
     vote_batch: Vec<SlotVoteRow>,
     epoch_stake_batch: Vec<EpochStakeRow>,
+    gossip_peer_batch: Vec<GossipPeerRow>,
     batch_size: usize,
     flush_interval: Duration,
     last_flush: Instant,
@@ -106,6 +124,7 @@ impl TableBatcher {
             vote_lifecycle_batch: Vec::with_capacity(batch_size),
             vote_batch: Vec::with_capacity(batch_size),
             epoch_stake_batch: Vec::with_capacity(2048),
+            gossip_peer_batch: Vec::with_capacity(64),
             batch_size,
             flush_interval,
             last_flush: Instant::now(),
@@ -118,6 +137,7 @@ impl TableBatcher {
             TableRow::VoteLifecycle(r) => self.vote_lifecycle_batch.push(r),
             TableRow::Vote(r) => self.vote_batch.push(r),
             TableRow::EpochStake(r) => self.epoch_stake_batch.push(r),
+            TableRow::GossipPeer(r) => self.gossip_peer_batch.push(r),
         }
     }
 
@@ -129,7 +149,8 @@ impl TableBatcher {
             || (self.last_flush.elapsed() >= self.flush_interval
                 && (!self.bank_lifecycle_batch.is_empty()
                     || !self.vote_lifecycle_batch.is_empty()
-                    || !self.vote_batch.is_empty()))
+                    || !self.vote_batch.is_empty()
+                    || !self.gossip_peer_batch.is_empty()))
     }
 
     async fn maybe_flush(&mut self, client: &Client) {
@@ -150,6 +171,9 @@ impl TableBatcher {
         }
         if !self.epoch_stake_batch.is_empty() {
             flush_rows(client, "epoch_stake_map", &mut self.epoch_stake_batch).await;
+        }
+        if !self.gossip_peer_batch.is_empty() {
+            flush_rows(client, "gossip_peer_stats", &mut self.gossip_peer_batch).await;
         }
         self.last_flush = Instant::now();
     }

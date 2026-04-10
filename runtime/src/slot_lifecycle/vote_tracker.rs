@@ -45,6 +45,12 @@ pub struct VoteLifecycleTracker {
     pubkey_encoding_cache: PubkeyEncodingCache,
 }
 
+impl Default for VoteLifecycleTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VoteLifecycleTracker {
     pub fn new() -> Self {
         let mhz = tsc_mhz();

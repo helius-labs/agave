@@ -41,6 +41,7 @@ use {
             partitioned_epoch_rewards::{EpochRewardStatus, VoteRewardsAccounts},
         },
         bank_forks::BankForks,
+        slot_lifecycle::SlotLifecycle,
         epoch_stakes::{NodeVoteAccounts, VersionedEpochStakes},
         inflation_rewards::points::InflationPointCalculationEvent,
         installed_scheduler_pool::{BankWithScheduler, InstalledSchedulerRwLock},
@@ -1130,7 +1131,7 @@ impl Bank {
             block_id: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::default(),
             epoch_rewards_calculation_cache: Arc::new(Mutex::new(HashMap::default())),
-            slot_lifecycle: Default::default(),
+            slot_lifecycle: SlotLifecycle::default(),
         };
 
         bank.transaction_processor =
@@ -1378,7 +1379,7 @@ impl Bank {
             block_id: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::default(),
             epoch_rewards_calculation_cache: parent.epoch_rewards_calculation_cache.clone(),
-            slot_lifecycle: Default::default(),
+            slot_lifecycle: SlotLifecycle::default(),
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1872,7 +1873,7 @@ impl Bank {
             block_id: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::new(&fields.bank_hash_stats),
             epoch_rewards_calculation_cache: Arc::new(Mutex::new(HashMap::default())),
-            slot_lifecycle: Default::default(),
+            slot_lifecycle: SlotLifecycle::default(),
         };
 
         // Sanity assertions between bank snapshot and genesis config

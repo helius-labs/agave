@@ -14,7 +14,6 @@ use {
 /// Measures wakeup latency: time from signal to receiver resuming execution.
 /// Each approach uses a Barrier to synchronize sender/receiver, then a small
 /// sleep to ensure the receiver is parked/sleeping before the signal fires.
-
 fn bench_wakeup_latency(c: &mut Criterion) {
     let mut group = c.benchmark_group("vote_notify_wakeup");
     group.sample_size(200);

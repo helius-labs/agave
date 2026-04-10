@@ -231,14 +231,16 @@ pub(crate) fn submit_gossip_stats(
     .iter()
     .map(|counter| counter.0.load(Ordering::Relaxed))
     .sum();
+    let tvu_peers_val = stats.tvu_peers.clear();
+    let get_votes_count_val = stats.get_votes_count.clear();
     datapoint_info!(
         "cluster_info_stats",
         ("entrypoint", stats.entrypoint.clear(), i64),
         ("entrypoint2", stats.entrypoint2.clear(), i64),
         ("push_vote_read", stats.push_vote_read.clear(), i64),
         ("get_votes", stats.get_votes.clear(), i64),
-        ("get_votes_count", stats.get_votes_count.clear(), i64),
-        ("tvu_peers", stats.tvu_peers.clear(), i64),
+        ("get_votes_count", get_votes_count_val, i64),
+        ("tvu_peers", tvu_peers_val, i64),
         ("table_size", table_size as i64, i64),
         ("purged_values_size", purged_values_size as i64, i64),
         ("failed_inserts_size", failed_inserts_size as i64, i64),
@@ -246,6 +248,20 @@ pub(crate) fn submit_gossip_stats(
         ("num_nodes_staked", num_nodes_staked as i64, i64),
         ("num_pubkeys", num_pubkeys, i64),
     );
+    {
+        use solana_runtime::slot_lifecycle::{GossipPeerRow, TableRow, record, hostname, now_datetime};
+        record(TableRow::GossipPeer(GossipPeerRow {
+            timestamp: now_datetime(),
+            host: hostname(),
+            num_nodes: num_nodes as u64,
+            num_nodes_staked: num_nodes_staked as u64,
+            num_pubkeys: num_pubkeys as u64,
+            table_size: table_size as u64,
+            purged_values_size: purged_values_size as u64,
+            tvu_peers: tvu_peers_val,
+            get_votes_count: get_votes_count_val,
+        }));
+    }
     datapoint_info!(
         "cluster_info_stats2",
         (
