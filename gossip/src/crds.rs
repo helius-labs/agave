@@ -1512,4 +1512,68 @@ mod tests {
         assert!(!(v1 == v2));
         assert!(!overrides(&v2.value, &v1));
     }
+
+    #[test]
+    fn test_vote_notify_fires_on_vote_insert() {
+        let mut crds = Crds::default();
+        let notify = crds.vote_notify.clone();
+
+        // Insert a vote — notify should fire
+        let keypair = Keypair::new();
+        let data = loop {
+            let d = CrdsData::new_rand(&mut thread_rng(), Some(keypair.pubkey()));
+            if matches!(d, CrdsData::Vote(_, _)) { break d; }
+        };
+        let val = CrdsValue::new_unsigned(data);
+        crds.insert(val, 0, GossipRoute::LocalMessage).unwrap();
+
+        let (lock, _cvar) = &*notify;
+        assert!(*lock.lock().unwrap(), "vote_notify should be true after vote insert");
+    }
+
+    #[test]
+    fn test_vote_notify_does_not_fire_on_non_vote_insert() {
+        let mut crds = Crds::default();
+        let notify = crds.vote_notify.clone();
+
+        // Insert a ContactInfo (not a vote) — notify should NOT fire
+        let val = CrdsValue::new_unsigned(CrdsData::from(ContactInfo::default()));
+        crds.insert(val, 0, GossipRoute::LocalMessage).unwrap();
+
+        let (lock, _cvar) = &*notify;
+        assert!(!*lock.lock().unwrap(), "vote_notify should be false after non-vote insert");
+    }
+
+    #[test]
+    fn test_vote_notify_condvar_wakes_waiter() {
+        let mut crds = Crds::default();
+        let notify = crds.vote_notify.clone();
+
+        // Spawn a thread that waits on the condvar
+        let notify_clone = notify.clone();
+        let handle = std::thread::spawn(move || {
+            let (lock, cvar) = &*notify_clone;
+            let mut has_new = lock.lock().unwrap();
+            if !*has_new {
+                has_new = cvar.wait_timeout(has_new, Duration::from_secs(5)).unwrap().0;
+            }
+            let result = *has_new;
+            *has_new = false;
+            result
+        });
+
+        // Small delay to ensure the thread is waiting
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Insert a vote — should wake the waiter
+        let keypair = Keypair::new();
+        let data = loop {
+            let d = CrdsData::new_rand(&mut thread_rng(), Some(keypair.pubkey()));
+            if matches!(d, CrdsData::Vote(_, _)) { break d; }
+        };
+        let val = CrdsValue::new_unsigned(data);
+        crds.insert(val, 0, GossipRoute::LocalMessage).unwrap();
+
+        assert!(handle.join().unwrap(), "waiter should have been woken by vote insert");
+    }
 }

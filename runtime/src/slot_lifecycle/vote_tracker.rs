@@ -132,3 +132,100 @@ impl VoteLifecycleTracker {
         self.slots.retain(|slot, _| *slot > root);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vote_tracker_records_thresholds() {
+        let mut tracker = VoteLifecycleTracker::new();
+        let total_stake = 1000;
+        let slot = 42;
+        let epoch = 100;
+
+        // Feed votes that cross 10% (100), 25% (250), 50% (500), 66.7% (667)
+        let pubkeys: Vec<Pubkey> = (0..10).map(|_| Pubkey::new_unique()).collect();
+
+        // 10% stake
+        tracker.record_vote(slot, epoch, &pubkeys[0], 100, 100, total_stake, true);
+        let t = &tracker.slots[&slot];
+        assert!(t.thresholds_tsc[0] > 0, "10% threshold should be set");
+        assert_eq!(t.thresholds_tsc[1], 0, "25% threshold should not be set");
+
+        // 25% stake
+        tracker.record_vote(slot, epoch, &pubkeys[1], 150, 250, total_stake, true);
+        let t = &tracker.slots[&slot];
+        assert!(t.thresholds_tsc[1] > 0, "25% threshold should be set");
+        assert_eq!(t.thresholds_tsc[2], 0, "50% threshold should not be set");
+
+        // 50% stake
+        tracker.record_vote(slot, epoch, &pubkeys[2], 250, 500, total_stake, false);
+        let t = &tracker.slots[&slot];
+        assert!(t.thresholds_tsc[2] > 0, "50% threshold should be set");
+        assert_eq!(t.thresholds_tsc[3], 0, "66% threshold should not be set");
+
+        // 66.7% stake
+        tracker.record_vote(slot, epoch, &pubkeys[3], 167, 667, total_stake, true);
+        let t = &tracker.slots[&slot];
+        assert!(t.thresholds_tsc[3] > 0, "66% threshold should be set");
+        assert!(t.logged, "should have logged at 66% threshold");
+        assert!(t.confirmed_by_gossip, "confirming vote was gossip");
+    }
+
+    #[test]
+    fn test_vote_tracker_counts_gossip_vs_replay() {
+        let mut tracker = VoteLifecycleTracker::new();
+        let slot = 42;
+        let epoch = 100;
+        let total_stake = 1000;
+
+        let pk1 = Pubkey::new_unique();
+        let pk2 = Pubkey::new_unique();
+        let pk3 = Pubkey::new_unique();
+
+        tracker.record_vote(slot, epoch, &pk1, 10, 10, total_stake, true);
+        tracker.record_vote(slot, epoch, &pk2, 10, 20, total_stake, false);
+        tracker.record_vote(slot, epoch, &pk3, 10, 30, total_stake, true);
+
+        let t = &tracker.slots[&slot];
+        assert_eq!(t.gossip_vote_count, 2);
+        assert_eq!(t.replay_vote_count, 1);
+    }
+
+    #[test]
+    fn test_vote_tracker_confirmed_by_replay() {
+        let mut tracker = VoteLifecycleTracker::new();
+        let slot = 42;
+        let epoch = 100;
+        let total_stake = 1000;
+
+        let pk1 = Pubkey::new_unique();
+        let pk2 = Pubkey::new_unique();
+
+        // Gossip brings us to 60%
+        tracker.record_vote(slot, epoch, &pk1, 600, 600, total_stake, true);
+        // Replay pushes over 66.7%
+        tracker.record_vote(slot, epoch, &pk2, 100, 700, total_stake, false);
+
+        let t = &tracker.slots[&slot];
+        assert!(!t.confirmed_by_gossip, "confirming vote was replay, not gossip");
+    }
+
+    #[test]
+    fn test_vote_tracker_prune() {
+        let mut tracker = VoteLifecycleTracker::new();
+        let total_stake = 1000;
+        let epoch = 100;
+        let pk = Pubkey::new_unique();
+
+        tracker.record_vote(10, epoch, &pk, 100, 100, total_stake, true);
+        tracker.record_vote(20, epoch, &pk, 100, 100, total_stake, true);
+        tracker.record_vote(30, epoch, &pk, 100, 100, total_stake, true);
+
+        assert_eq!(tracker.slots.len(), 3);
+        tracker.prune(20);
+        assert_eq!(tracker.slots.len(), 1);
+        assert!(tracker.slots.contains_key(&30));
+    }
+}
