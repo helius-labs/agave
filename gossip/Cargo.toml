@@ -136,5 +136,9 @@ harness = false
 name = "weighted_shuffle"
 harness = false
 
+[[bench]]
+name = "vote_notify"
+harness = false
+
 [lints]
 workspace = true
