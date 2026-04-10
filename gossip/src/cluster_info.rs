@@ -931,9 +931,9 @@ impl ClusterInfo {
         txs
     }
 
-    /// Returns the vote notification condvar for signal-based wakeup.
-    /// Clone the Arc once at init; wait on it instead of sleeping.
-    pub fn vote_notify(&self) -> std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)> {
+    /// Returns the lock-free vote notification handle.
+    /// Clone the Arc once at init; call register_thread() then wait() in recv_loop.
+    pub fn vote_notify(&self) -> std::sync::Arc<crate::crds::VoteNotify> {
         self.gossip.crds.read().unwrap().vote_notify.clone()
     }
 
