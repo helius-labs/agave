@@ -67,34 +67,33 @@ pub(crate) const SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 19;
 /// Zero-lock vote notification using thread::park/unpark.
 /// unpark() has a built-in sticky flag — if called before park(),
 /// the next park() returns immediately. No atomic, no mutex, no lock.
+/// Vote notification using Condvar. notify() wakes all waiting threads.
+/// The Mutex is only held briefly during wait_timeout; notify_all() is lock-free.
 pub struct VoteNotify {
-    thread: std::sync::OnceLock<std::thread::Thread>,
+    mutex: Mutex<()>,
+    condvar: std::sync::Condvar,
 }
 
 impl VoteNotify {
     pub fn new() -> Self {
         Self {
-            thread: std::sync::OnceLock::new(),
+            mutex: Mutex::new(()),
+            condvar: std::sync::Condvar::new(),
         }
     }
 
-    /// Called by recv_loop once at startup to register its thread handle.
-    pub fn register_thread(&self) {
-        self.thread.set(std::thread::current()).ok();
-    }
-
-    /// Called from CRDS insert on Vote — zero locks, just unpark.
+    /// Called from CRDS insert on Vote. Wakes all waiting threads.
+    /// Does not acquire the mutex.
     #[inline]
     pub fn notify(&self) {
-        if let Some(thread) = self.thread.get() {
-            thread.unpark();
-        }
+        self.condvar.notify_all();
     }
 
-    /// Called by recv_loop — parks until unparked or timeout.
+    /// Blocks until notified or timeout expires.
     #[inline]
     pub fn wait(&self, timeout: std::time::Duration) {
-        std::thread::park_timeout(timeout);
+        let guard = self.mutex.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = self.condvar.wait_timeout(guard, timeout);
     }
 }
 

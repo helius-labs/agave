@@ -255,7 +255,6 @@ impl ClusterInfoVoteListener {
     ) -> Result<()> {
         let mut cursor = Cursor::default();
         let vote_notify = cluster_info.vote_notify();
-        vote_notify.register_thread();
         while !exit.load(Ordering::Relaxed) {
             let votes = cluster_info.get_votes(&mut cursor);
             inc_new_counter_debug!("cluster_info_vote_listener-recv_count", votes.len());
@@ -264,8 +263,7 @@ impl ClusterInfoVoteListener {
                 verified_vote_transactions_sender.send(vote_txs)?;
                 verified_packets_sender.send(BankingPacketBatch::new(packets))?;
             }
-            // Park until a vote is inserted into CRDS or timeout.
-            // Lock-free: insert does atomic store + thread::unpark.
+            // Wait until a vote is inserted into CRDS or timeout.
             vote_notify.wait(Duration::from_millis(GOSSIP_SLEEP_MILLIS));
         }
         Ok(())
