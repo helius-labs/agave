@@ -3342,6 +3342,7 @@ impl ReplayStage {
                 // Freeze the bank before sending to any auxiliary threads
                 // that may expect to be operating on a frozen bank
                 bank.freeze();
+                bank.slot_lifecycle.stamp_frozen();
                 datapoint_info!(
                     "bank_frozen",
                     ("slot", bank_slot, i64),
@@ -4395,7 +4396,9 @@ impl ReplayStage {
                 .unwrap()
                 .notify_created_bank(slot, parent.slot());
         }
-        Bank::new_from_parent_with_options(parent, leader, slot, new_bank_options)
+        let bank = Bank::new_from_parent_with_options(parent, leader, slot, new_bank_options);
+        bank.slot_lifecycle.stamp_created_bank();
+        bank
     }
 
     fn log_heaviest_fork_failures(

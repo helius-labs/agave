@@ -34,6 +34,7 @@ pub mod snapshot_bank_utils;
 pub mod snapshot_controller;
 pub mod snapshot_minimizer;
 pub mod snapshot_package;
+pub mod slot_lifecycle;
 pub mod snapshot_utils;
 mod stake_account;
 pub mod stake_history;
