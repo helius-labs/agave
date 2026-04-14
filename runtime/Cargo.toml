@@ -69,7 +69,9 @@ bincode = { workspace = true }
 blake3 = { workspace = true }
 bv = { workspace = true, features = ["serde"] }
 bytemuck = { workspace = true }
+clickhouse = { workspace = true }
 crossbeam-channel = { workspace = true }
+gethostname = { workspace = true }
 dashmap = { workspace = true, features = ["rayon", "raw-api", "serde"] }
 im = { workspace = true, features = ["rayon", "serde"] }
 itertools = { workspace = true }
@@ -91,6 +93,8 @@ regex = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
 serde_with = { workspace = true }
 shuttle = { workspace = true, optional = true }
 smallvec = { workspace = true, features = ["serde"] }

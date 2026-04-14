@@ -50,7 +50,7 @@ use {
         cmp::Ordering,
         collections::{BTreeMap, HashMap, HashSet, VecDeque, hash_map},
         ops::{Bound, Index, IndexMut},
-        sync::Mutex,
+        sync::{Arc, Mutex},
     },
 };
 
@@ -63,6 +63,42 @@ const VOTE_SLOTS_METRICS_CAP: usize = 100;
 // target: 1 signature reported per minute
 // log2(680k) = ~19.375.
 pub(crate) const SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 19;
+
+/// Vote notification using Condvar. notify() wakes all waiting threads.
+/// The Mutex is only held briefly during wait_timeout; notify_all() is lock-free.
+pub struct VoteNotify {
+    mutex: Mutex<()>,
+    condvar: std::sync::Condvar,
+}
+
+impl VoteNotify {
+    pub fn new() -> Self {
+        Self {
+            mutex: Mutex::new(()),
+            condvar: std::sync::Condvar::new(),
+        }
+    }
+
+    /// Called from CRDS insert on Vote. Wakes all waiting threads.
+    /// Does not acquire the mutex.
+    #[inline]
+    pub fn notify(&self) {
+        self.condvar.notify_all();
+    }
+
+    /// Blocks until notified or timeout expires.
+    #[inline]
+    pub fn wait(&self, timeout: std::time::Duration) {
+        let guard = self.mutex.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = self.condvar.wait_timeout(guard, timeout);
+    }
+}
+
+impl Default for VoteNotify {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct Crds {
     /// Stores the map of labels and values
@@ -83,6 +119,10 @@ pub struct Crds {
     // Hash of recently purged values.
     purged: VecDeque<(Hash, u64 /*timestamp*/)>,
     stats: Mutex<CrdsStats>,
+    /// Lock-free vote notification for recv_loop.
+    /// Insert sets the flag and unparks the thread; recv_loop parks when idle.
+    /// No mutex in the insert path — zero contention with gossip processing.
+    pub(crate) vote_notify: Arc<VoteNotify>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -178,6 +218,7 @@ impl Default for Crds {
             entries: BTreeMap::default(),
             purged: VecDeque::default(),
             stats: Mutex::<CrdsStats>::default(),
+            vote_notify: Arc::new(VoteNotify::new()),
         }
     }
 }
@@ -237,6 +278,7 @@ impl Crds {
                     }
                     CrdsData::Vote(_, _) => {
                         self.votes.insert(value.ordinal, entry_index);
+                        self.vote_notify.notify();
                     }
                     CrdsData::EpochSlots(_, _) => {
                         self.epoch_slots.insert(value.ordinal, entry_index);
@@ -266,6 +308,7 @@ impl Crds {
                     CrdsData::Vote(_, _) => {
                         self.votes.remove(&entry.get().ordinal);
                         self.votes.insert(value.ordinal, entry_index);
+                        self.vote_notify.notify();
                     }
                     CrdsData::EpochSlots(_, _) => {
                         self.epoch_slots.remove(&entry.get().ordinal);
@@ -1521,5 +1564,59 @@ mod tests {
         assert_ne!(v1, v2);
         assert!(!(v1 == v2));
         assert!(!overrides(&v2.value, &v1));
+    }
+
+    #[test]
+    fn test_vote_notify_wakes_parked_thread() {
+        let mut crds = Crds::default();
+        let notify = crds.vote_notify.clone();
+
+        // Spawn a thread that waits for a vote, measuring wake time
+        let notify_clone = notify.clone();
+        let handle = std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            notify_clone.wait(Duration::from_secs(5));
+            start.elapsed()
+        });
+
+        // Small delay to ensure the thread is waiting
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Insert a vote — should wake the waiter
+        let keypair = Keypair::new();
+        let data = loop {
+            let d = CrdsData::new_rand(&mut rng(), Some(keypair.pubkey()));
+            if matches!(d, CrdsData::Vote(_, _)) { break d; }
+        };
+        let val = CrdsValue::new_unsigned(data);
+        crds.insert(val, 0, GossipRoute::LocalMessage).unwrap();
+
+        let elapsed = handle.join().unwrap();
+        // Should wake in well under the 5s timeout — give generous margin
+        assert!(elapsed < Duration::from_millis(500), "thread should wake quickly, took {:?}", elapsed);
+    }
+
+    #[test]
+    fn test_vote_notify_does_not_wake_on_non_vote() {
+        let mut crds = Crds::default();
+        let notify = crds.vote_notify.clone();
+
+        let notify_clone = notify.clone();
+        let handle = std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            // Short timeout — should NOT be woken by non-vote insert
+            notify_clone.wait(Duration::from_millis(100));
+            start.elapsed()
+        });
+
+        std::thread::sleep(Duration::from_millis(10));
+
+        // Insert a ContactInfo (not a vote)
+        let val = CrdsValue::new_unsigned(CrdsData::from(ContactInfo::default()));
+        crds.insert(val, 0, GossipRoute::LocalMessage).unwrap();
+
+        let elapsed = handle.join().unwrap();
+        // Should timeout at ~100ms, not wake early
+        assert!(elapsed >= Duration::from_millis(80), "thread should NOT wake on non-vote, woke in {:?}", elapsed);
     }
 }

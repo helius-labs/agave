@@ -97,7 +97,7 @@ use {
 const DEFAULT_EPOCH_DURATION: Duration =
     Duration::from_millis(DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT);
 /// milliseconds we sleep for between gossip rounds
-pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
+pub const GOSSIP_SLEEP_MILLIS: u64 = 10;
 /// Interval between pull requests (in gossip rounds)
 const PULL_REQUEST_PERIOD: usize = 5;
 
@@ -903,6 +903,12 @@ impl ClusterInfo {
             .collect();
         self.stats.get_votes_count.add_relaxed(txs.len() as u64);
         txs
+    }
+
+    /// Returns the lock-free vote notification handle.
+    /// Clone the Arc once at init; call wait() in recv_loop.
+    pub fn vote_notify(&self) -> std::sync::Arc<crate::crds::VoteNotify> {
+        self.gossip.crds.read().unwrap().vote_notify.clone()
     }
 
     /// Returns votes and the associated labels inserted since the given cursor.

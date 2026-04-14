@@ -43,6 +43,7 @@ use {
             },
         },
         bank_forks::BankForks,
+        slot_lifecycle::SlotLifecycle,
         epoch_stakes::{
             BLSPubkeyToRankMap, DeserializableVersionedEpochStakes, NodeVoteAccounts,
             VersionedEpochStakes,
@@ -602,6 +603,7 @@ impl PartialEq for Bank {
             expected_bank_hash: _,
             bank_hash_stats: _,
             epoch_rewards_calculation_cache: _,
+            slot_lifecycle: _,
             // Ignore new fields explicitly if they do not impact PartialEq.
             // Adding ".." will remove compile-time checks that if a new field
             // is added to the struct, this PartialEq is accordingly updated.
@@ -946,6 +948,8 @@ pub struct Bank {
     /// This is used to avoid recalculating the same epoch rewards at epoch boundary.
     /// The hashmap is keyed by parent_hash.
     epoch_rewards_calculation_cache: Arc<Mutex<HashMap<Hash, Arc<PartitionedRewardsCalculation>>>>,
+
+    pub slot_lifecycle: SlotLifecycle,
 }
 
 #[derive(Debug)]
@@ -1154,6 +1158,7 @@ impl Bank {
             expected_bank_hash: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::default(),
             epoch_rewards_calculation_cache: Arc::new(Mutex::new(HashMap::default())),
+            slot_lifecycle: SlotLifecycle::default(),
         };
 
         bank.transaction_processor =
@@ -1401,6 +1406,7 @@ impl Bank {
             expected_bank_hash: RwLock::new(None),
             bank_hash_stats: AtomicBankHashStats::default(),
             epoch_rewards_calculation_cache: parent.epoch_rewards_calculation_cache.clone(),
+            slot_lifecycle: SlotLifecycle::default(),
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1961,6 +1967,7 @@ impl Bank {
             bank_hash_stats: AtomicBankHashStats::new(&fields.bank_hash_stats),
             epoch_rewards_calculation_cache: Arc::new(Mutex::new(HashMap::default())),
             expected_bank_hash: RwLock::new(None),
+            slot_lifecycle: SlotLifecycle::default(),
         };
 
         // Sanity assertions between bank snapshot and genesis config
