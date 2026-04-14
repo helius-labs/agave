@@ -317,6 +317,7 @@ impl Crds {
                     CrdsData::Vote(_, _) => {
                         self.votes.remove(&entry.get().ordinal);
                         self.votes.insert(value.ordinal, entry_index);
+                        self.vote_notify.notify();
                     }
                     CrdsData::EpochSlots(_, _) => {
                         self.epoch_slots.remove(&entry.get().ordinal);

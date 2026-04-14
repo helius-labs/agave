@@ -102,7 +102,7 @@ use {
 const DEFAULT_EPOCH_DURATION: Duration =
     Duration::from_millis(DEFAULT_SLOTS_PER_EPOCH * DEFAULT_MS_PER_SLOT);
 /// milliseconds we sleep for between gossip rounds
-pub const GOSSIP_SLEEP_MILLIS: u64 = 10;
+pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
 /// Interval between pull requests (in gossip rounds)
 const PULL_REQUEST_PERIOD: usize = 5;
 
