@@ -35,7 +35,12 @@ const _: () = assert!(std::mem::size_of::<Age>() == std::mem::size_of::<AtomicAg
 /// higher the utilization of the in-mem index bins.
 ///
 /// This value is used to compute the high watermark.
-pub const DEFAULT_NUM_ENTRIES_OVERHEAD: usize = 5_000;
+///
+/// Helius fix (anon-rss regression vs v3.1.x): bumped 10x. On mainnet under SPL-token
+/// secondary indexes the per-bin insertion rate exceeds v4's default eviction throughput,
+/// so the in-mem index grows unbounded (~+200 GB anon-rss vs v3). Raising the watermark
+/// triggers eviction earlier and keeps the index size bounded.
+pub const DEFAULT_NUM_ENTRIES_OVERHEAD: usize = 50_000;
 
 /// The number of entries to evict, once we've hit the high watermark.
 ///
@@ -46,7 +51,11 @@ pub const DEFAULT_NUM_ENTRIES_OVERHEAD: usize = 5_000;
 /// with that goal.
 ///
 /// This value is used to compute the low watermark.
-pub const DEFAULT_NUM_ENTRIES_TO_EVICT: usize = 10_000;
+///
+/// Helius fix (anon-rss regression vs v3.1.x): bumped 10x to keep up with mainnet insertion
+/// rate when SPL-token secondary indexes are active. With 8192 bins × 100k = 819M max
+/// evictions per cycle vs 81.9M before. Transient eviction Vec alloc ≈ 3.2 MB/bin.
+pub const DEFAULT_NUM_ENTRIES_TO_EVICT: usize = 100_000;
 
 pub struct BucketMapHolder<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> {
     pub disk: Option<BucketMap<(Slot, U)>>,
