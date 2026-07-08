@@ -110,6 +110,46 @@ pub struct ReplicaAccountInfoV3<'a> {
     pub txn: Option<&'a SanitizedTransaction>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+/// Information about an account being updated
+/// (extended with whether the transaction actually modified the account)
+pub struct ReplicaAccountInfoV4<'a> {
+    /// The Pubkey for the account
+    pub pubkey: &'a [u8],
+
+    /// The lamports for the account
+    pub lamports: u64,
+
+    /// The Pubkey of the owner program account
+    pub owner: &'a [u8],
+
+    /// This account's data contains a loaded program (and is now read-only)
+    pub executable: bool,
+
+    /// The epoch at which this account will next owe rent
+    pub rent_epoch: u64,
+
+    /// The data held in this account.
+    pub data: &'a [u8],
+
+    /// A global monotonically increasing atomic number, which can be used
+    /// to tell the order of the account update. For example, when an
+    /// account is updated in the same slot multiple times, the update
+    /// with higher write_version should supersede the one with lower
+    /// write_version.
+    pub write_version: u64,
+
+    /// Reference to transaction causing this account modification
+    pub txn: Option<&'a SanitizedTransaction>,
+
+    /// Whether the transaction actually changed this account's state.
+    /// `Some(false)` only when the runtime positively knows the account was
+    /// stored back unchanged; `None` when unknown (e.g. non-transaction
+    /// stores).
+    pub modified: Option<bool>,
+}
+
 /// A wrapper to future-proof ReplicaAccountInfo handling.
 /// If there were a change to the structure of ReplicaAccountInfo,
 /// there would be new enum entry for the newer version, forcing
@@ -119,6 +159,7 @@ pub enum ReplicaAccountInfoVersions<'a> {
     V0_0_1(&'a ReplicaAccountInfo<'a>),
     V0_0_2(&'a ReplicaAccountInfoV2<'a>),
     V0_0_3(&'a ReplicaAccountInfoV3<'a>),
+    V0_0_4(&'a ReplicaAccountInfoV4<'a>),
 }
 
 /// Information about a transaction
