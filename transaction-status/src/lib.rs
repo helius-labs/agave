@@ -4,15 +4,15 @@ pub use {
     crate::extract_memos::extract_and_fmt_memos,
     solana_reward_info::RewardType,
     solana_transaction_status_client_types::{
-        option_serializer, ConfirmedTransactionStatusWithSignature, EncodeError,
-        EncodedConfirmedBlock, EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
-        EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions, Reward, Rewards,
-        TransactionBinaryEncoding, TransactionConfirmationStatus, TransactionDetails,
-        TransactionStatus, TransactionStatusMeta, TransactionTokenBalance, UiAccountsList,
-        UiAddressTableLookup, UiCompiledInstruction, UiConfirmedBlock, UiInnerInstructions,
-        UiInstruction, UiLoadedAddresses, UiMessage, UiParsedInstruction, UiParsedMessage,
-        UiPartiallyDecodedInstruction, UiRawMessage, UiReturnDataEncoding, UiTransaction,
-        UiTransactionEncoding, UiTransactionReturnData, UiTransactionStatusMeta,
+        base58 as fast_base58, option_serializer, ConfirmedTransactionStatusWithSignature,
+        EncodeError, EncodedConfirmedBlock, EncodedConfirmedTransactionWithStatusMeta,
+        EncodedTransaction, EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,
+        Reward, Rewards, TransactionBinaryEncoding, TransactionConfirmationStatus,
+        TransactionDetails, TransactionStatus, TransactionStatusMeta, TransactionTokenBalance,
+        UiAccountsList, UiAddressTableLookup, UiCompiledInstruction, UiConfirmedBlock,
+        UiInnerInstructions, UiInstruction, UiLoadedAddresses, UiMessage, UiParsedInstruction,
+        UiParsedMessage, UiPartiallyDecodedInstruction, UiRawMessage, UiReturnDataEncoding,
+        UiTransaction, UiTransactionEncoding, UiTransactionReturnData, UiTransactionStatusMeta,
         UiTransactionTokenBalance,
     },
 };
@@ -98,7 +98,7 @@ fn make_ui_partially_decoded_instruction(
             .iter()
             .map(|&i| account_keys[i as usize].to_string())
             .collect(),
-        data: bs58::encode(instruction.data.clone()).into_string(),
+        data: fast_base58::encode(&instruction.data),
         stack_height,
     }
 }
@@ -628,11 +628,11 @@ impl EncodableWithMeta for VersionedTransaction {
         meta: &TransactionStatusMeta,
     ) -> Self::Encoded {
         match encoding {
-            UiTransactionEncoding::Binary => EncodedTransaction::LegacyBinary(
-                bs58::encode(bincode::serialize(self).unwrap()).into_string(),
-            ),
+            UiTransactionEncoding::Binary => EncodedTransaction::LegacyBinary(fast_base58::encode(
+                &bincode::serialize(self).unwrap(),
+            )),
             UiTransactionEncoding::Base58 => EncodedTransaction::Binary(
-                bs58::encode(bincode::serialize(self).unwrap()).into_string(),
+                fast_base58::encode(&bincode::serialize(self).unwrap()),
                 TransactionBinaryEncoding::Base58,
             ),
             UiTransactionEncoding::Base64 => EncodedTransaction::Binary(
@@ -668,11 +668,11 @@ impl Encodable for VersionedTransaction {
     type Encoded = EncodedTransaction;
     fn encode(&self, encoding: UiTransactionEncoding) -> Self::Encoded {
         match encoding {
-            UiTransactionEncoding::Binary => EncodedTransaction::LegacyBinary(
-                bs58::encode(bincode::serialize(self).unwrap()).into_string(),
-            ),
+            UiTransactionEncoding::Binary => EncodedTransaction::LegacyBinary(fast_base58::encode(
+                &bincode::serialize(self).unwrap(),
+            )),
             UiTransactionEncoding::Base58 => EncodedTransaction::Binary(
-                bs58::encode(bincode::serialize(self).unwrap()).into_string(),
+                fast_base58::encode(&bincode::serialize(self).unwrap()),
                 TransactionBinaryEncoding::Base58,
             ),
             UiTransactionEncoding::Base64 => EncodedTransaction::Binary(
@@ -700,11 +700,11 @@ impl Encodable for Transaction {
     type Encoded = EncodedTransaction;
     fn encode(&self, encoding: UiTransactionEncoding) -> Self::Encoded {
         match encoding {
-            UiTransactionEncoding::Binary => EncodedTransaction::LegacyBinary(
-                bs58::encode(bincode::serialize(self).unwrap()).into_string(),
-            ),
+            UiTransactionEncoding::Binary => EncodedTransaction::LegacyBinary(fast_base58::encode(
+                &bincode::serialize(self).unwrap(),
+            )),
             UiTransactionEncoding::Base58 => EncodedTransaction::Binary(
-                bs58::encode(bincode::serialize(self).unwrap()).into_string(),
+                fast_base58::encode(&bincode::serialize(self).unwrap()),
                 TransactionBinaryEncoding::Base58,
             ),
             UiTransactionEncoding::Base64 => EncodedTransaction::Binary(

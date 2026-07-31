@@ -25,6 +25,7 @@ use {
     solana_transaction_error::{TransactionError, TransactionResult},
     thiserror::Error,
 };
+pub mod base58;
 pub mod option_serializer;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -550,7 +551,7 @@ impl UiCompiledInstruction {
         Self {
             program_id_index: instruction.program_id_index,
             accounts: instruction.accounts.clone(),
-            data: bs58::encode(&instruction.data).into_string(),
+            data: crate::base58::encode(&instruction.data),
             stack_height,
         }
     }
