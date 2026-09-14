@@ -184,9 +184,11 @@ pub(crate) mod external {
         super::*,
         crate::banking_stage::{
             committer::CommitTransactionDetails,
-            scheduler_messages::MaxAge,
-            transaction_scheduler::receive_and_buffer::{
-                PacketHandlingError, translate_to_runtime_view,
+            transaction_scheduler::{
+                external_translation::{
+                    reason_from_packet_handling_error, translate_transaction_batch,
+                },
+                receive_and_buffer::PacketHandlingError,
             },
         },
         agave_scheduler_bindings::{
@@ -196,18 +198,10 @@ pub(crate) mod external {
         },
         agave_scheduling_utils::{
             error::transaction_error_to_not_included_reason,
-            responses_region::execution_responses_from_iter,
-            transaction_ptr::{TransactionPtr, TransactionPtrBatch},
+            responses_region::execution_responses_from_iter, transaction_ptr::TransactionPtrBatch,
         },
-        agave_transaction_view::{
-            resolved_transaction_view::ResolvedTransactionView, sanitize::SanitizeConfig,
-        },
-        arrayvec::ArrayVec,
         solana_cost_model::cost_model::CostModel,
         solana_runtime::bank::Bank,
-        solana_runtime_transaction::{
-            runtime_transaction::RuntimeTransaction, sanitize_config::sanitize_config,
-        },
         std::num::NonZeroUsize,
     };
 
@@ -229,7 +223,6 @@ pub(crate) mod external {
         metrics: Arc<ConsumeWorkerMetrics>,
     }
 
-    type Tx = RuntimeTransaction<ResolvedTransactionView<TransactionPtr>>;
     enum IterationResult {
         ProcessedMessage,
         Idle,
@@ -379,7 +372,7 @@ pub(crate) mod external {
                 )
             };
             let (translation_results, transactions, max_ages) =
-                Self::translate_transaction_batch(&batch, bank);
+                translate_transaction_batch(&batch, bank);
 
             // Enforce all or nothing on translation_results.
             let execution_flags = ExecutionFlags {
@@ -463,7 +456,7 @@ pub(crate) mod external {
                     execution_slot,
                     not_included_reason: match res {
                         Ok(_) => not_included_reasons::ALL_OR_NOTHING_BATCH_FAILURE,
-                        Err(err) => Self::reason_from_packet_handling_error(err),
+                        Err(err) => reason_from_packet_handling_error(err),
                     },
                     cost_units: 0,
                     fee_payer_balance: 0,
@@ -501,7 +494,7 @@ pub(crate) mod external {
                     }
                     Err(err) => ExecutionResponse {
                         execution_slot: bank.slot(),
-                        not_included_reason: Self::reason_from_packet_handling_error(err),
+                        not_included_reason: reason_from_packet_handling_error(err),
                         cost_units: 0,
                         fee_payer_balance: 0,
                     },
@@ -567,63 +560,6 @@ pub(crate) mod external {
             Ok(())
         }
 
-        /// Translate batch of transactions into usable
-        fn translate_transaction_batch(
-            batch: &TransactionPtrBatch,
-            bank: &Bank,
-        ) -> (
-            ArrayVec<Result<(), PacketHandlingError>, MAX_TRANSACTIONS_PER_MESSAGE>,
-            ArrayVec<Tx, MAX_TRANSACTIONS_PER_MESSAGE>,
-            ArrayVec<MaxAge, MAX_TRANSACTIONS_PER_MESSAGE>,
-        ) {
-            let sanitize_config = sanitize_config();
-            let transaction_account_lock_limit = bank.get_transaction_account_lock_limit();
-
-            let mut translation_results = ArrayVec::new();
-            let mut transactions = ArrayVec::new();
-            let mut max_ages = ArrayVec::new();
-            for (transaction_ptr, _) in batch.iter() {
-                match Self::translate_transaction(
-                    transaction_ptr,
-                    bank,
-                    transaction_account_lock_limit,
-                    &sanitize_config,
-                ) {
-                    Ok((tx, max_age)) => {
-                        transactions.push(tx);
-                        max_ages.push(max_age);
-                        translation_results.push(Ok(()));
-                    }
-                    Err(err) => translation_results.push(Err(err)),
-                }
-            }
-
-            (translation_results, transactions, max_ages)
-        }
-
-        fn translate_transaction(
-            transaction_ptr: TransactionPtr,
-            bank: &Bank,
-            transaction_account_lock_limit: usize,
-            sanitize_config: &SanitizeConfig,
-        ) -> Result<(Tx, MaxAge), PacketHandlingError> {
-            translate_to_runtime_view(
-                transaction_ptr,
-                bank,
-                transaction_account_lock_limit,
-                sanitize_config,
-            )
-            .map(|(view, deactivation_slot)| {
-                (
-                    view,
-                    MaxAge {
-                        sanitized_epoch: bank.epoch(),
-                        alt_invalidation_slot: deactivation_slot,
-                    },
-                )
-            })
-        }
-
         /// Returns `true` if a message is valid and can be processed.
         fn validate_message(message: &PackToExecutionWorkerMessage) -> bool {
             message.batch.num_transactions > 0
@@ -673,22 +609,16 @@ pub(crate) mod external {
                 },
             }
         }
-
-        fn reason_from_packet_handling_error(err: &PacketHandlingError) -> u8 {
-            match err {
-                PacketHandlingError::ALTResolution => {
-                    not_included_reasons::ADDRESS_LOOKUP_TABLE_NOT_FOUND
-                }
-                _ => not_included_reasons::SANITIZE_FAILURE,
-            }
-        }
     }
 
     #[cfg(test)]
     mod tests {
         use {
             super::*,
-            crate::banking_stage::{committer::Committer, tests::create_slow_genesis_config},
+            crate::banking_stage::{
+                committer::Committer, tests::create_slow_genesis_config,
+                transaction_scheduler::receive_and_buffer::translate_to_runtime_view,
+            },
             agave_scheduler_bindings::{SharableTransactionBatchRegion, processed_codes},
             agave_scheduler_handshake::{ClientLogon, client, server::Server},
             agave_scheduling_utils::responses_region::ExecutionResponsesPtr,
@@ -703,6 +633,7 @@ pub(crate) mod external {
             },
             solana_pubkey::Pubkey,
             solana_runtime::{bank_forks::BankForks, vote_sender_types::ReplayVoteReceiver},
+            solana_runtime_transaction::sanitize_config::sanitize_config,
             solana_system_transaction::transfer,
             solana_transaction::TransactionError,
             std::sync::{RwLock, atomic::AtomicBool},
@@ -1157,28 +1088,20 @@ pub(crate) mod external {
         #[test]
         fn test_reason_from_packet_handling_error() {
             assert_eq!(
-                ExternalWorker::reason_from_packet_handling_error(
-                    &PacketHandlingError::Sanitization
-                ),
+                reason_from_packet_handling_error(&PacketHandlingError::Sanitization),
                 not_included_reasons::SANITIZE_FAILURE
             );
             assert_eq!(
-                ExternalWorker::reason_from_packet_handling_error(
-                    &PacketHandlingError::LockValidation
-                ),
+                reason_from_packet_handling_error(&PacketHandlingError::LockValidation),
                 not_included_reasons::SANITIZE_FAILURE
             );
             assert_eq!(
-                ExternalWorker::reason_from_packet_handling_error(
-                    &PacketHandlingError::ComputeBudget
-                ),
+                reason_from_packet_handling_error(&PacketHandlingError::ComputeBudget),
                 not_included_reasons::SANITIZE_FAILURE
             );
 
             assert_eq!(
-                ExternalWorker::reason_from_packet_handling_error(
-                    &PacketHandlingError::ALTResolution
-                ),
+                reason_from_packet_handling_error(&PacketHandlingError::ALTResolution),
                 not_included_reasons::ADDRESS_LOOKUP_TABLE_NOT_FOUND
             );
         }
@@ -1542,7 +1465,7 @@ fn try_drain_iter<T>(work: T, receiver: &Receiver<T>) -> impl Iterator<Item = T>
 }
 
 /// Returns an active leader state if available, otherwise None.
-fn active_leader_state(
+pub(crate) fn active_leader_state(
     shared_leader_state: &SharedLeaderState,
 ) -> Option<arc_swap::Guard<Arc<LeaderState>>> {
     let guard = shared_leader_state.load();

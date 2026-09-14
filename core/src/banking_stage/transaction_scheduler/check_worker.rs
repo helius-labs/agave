@@ -124,9 +124,11 @@ mod tests {
 pub(crate) mod external {
     use {
         crate::banking_stage::{
+            consume_worker::active_leader_state,
             scheduler_messages::MaxAge,
-            transaction_scheduler::receive_and_buffer::{
-                PacketHandlingError, translate_to_runtime_view,
+            transaction_scheduler::{
+                external_translation::{ExternalTransaction, translate_transaction_batch},
+                receive_and_buffer::PacketHandlingError,
             },
         },
         agave_scheduler_bindings::{
@@ -143,14 +145,13 @@ pub(crate) mod external {
         },
         agave_transaction_view::{
             resolved_transaction_view::ResolvedTransactionView, result::TransactionViewError,
-            sanitize::SanitizeConfig, transaction_data::TransactionData,
-            transaction_view::SanitizedTransactionView,
+            transaction_data::TransactionData, transaction_view::SanitizedTransactionView,
         },
         arrayvec::ArrayVec,
         solana_account::ReadableAccount,
         solana_clock::Slot,
         solana_cost_model::cost_model::CostModel,
-        solana_poh::poh_recorder::{LeaderState, SharedLeaderState},
+        solana_poh::poh_recorder::SharedLeaderState,
         solana_pubkey::Pubkey,
         solana_runtime::{
             bank::Bank,
@@ -177,7 +178,7 @@ pub(crate) mod external {
         thiserror::Error,
     };
 
-    type Tx = RuntimeTransaction<ResolvedTransactionView<TransactionPtr>>;
+    type Tx = ExternalTransaction;
     type TxView = SanitizedTransactionView<TransactionPtr>;
 
     #[derive(Debug, Error)]
@@ -308,7 +309,7 @@ pub(crate) mod external {
 
             // Do resolving next since we (currently) need resolved transactions for status checks.
             let (parsing_and_resolve_results, txs, max_ages) =
-                Self::translate_transaction_batch(&batch, &root_bank);
+                translate_transaction_batch(&batch, &root_bank);
 
             if message.flags & check_message_flags::CALCULATE_SCHEDULING_DETAILS != 0 {
                 Self::check_scheduling_details(
@@ -736,62 +737,6 @@ pub(crate) mod external {
             }
         }
 
-        fn translate_transaction_batch(
-            batch: &TransactionPtrBatch,
-            bank: &Bank,
-        ) -> (
-            ArrayVec<Result<(), PacketHandlingError>, MAX_TRANSACTIONS_PER_MESSAGE>,
-            ArrayVec<Tx, MAX_TRANSACTIONS_PER_MESSAGE>,
-            ArrayVec<MaxAge, MAX_TRANSACTIONS_PER_MESSAGE>,
-        ) {
-            let sanitize_config = sanitize_config();
-            let transaction_account_lock_limit = bank.get_transaction_account_lock_limit();
-
-            let mut translation_results = ArrayVec::new();
-            let mut transactions = ArrayVec::new();
-            let mut max_ages = ArrayVec::new();
-            for (transaction_ptr, _) in batch.iter() {
-                match Self::translate_transaction(
-                    transaction_ptr,
-                    bank,
-                    transaction_account_lock_limit,
-                    &sanitize_config,
-                ) {
-                    Ok((tx, max_age)) => {
-                        transactions.push(tx);
-                        max_ages.push(max_age);
-                        translation_results.push(Ok(()));
-                    }
-                    Err(err) => translation_results.push(Err(err)),
-                }
-            }
-
-            (translation_results, transactions, max_ages)
-        }
-
-        fn translate_transaction(
-            transaction_ptr: TransactionPtr,
-            bank: &Bank,
-            transaction_account_lock_limit: usize,
-            sanitize_config: &SanitizeConfig,
-        ) -> Result<(Tx, MaxAge), PacketHandlingError> {
-            translate_to_runtime_view(
-                transaction_ptr,
-                bank,
-                transaction_account_lock_limit,
-                sanitize_config,
-            )
-            .map(|(view, deactivation_slot)| {
-                (
-                    view,
-                    MaxAge {
-                        sanitized_epoch: bank.epoch(),
-                        alt_invalidation_slot: deactivation_slot,
-                    },
-                )
-            })
-        }
-
         /// # Safety
         /// - destination is appropriately sized
         /// - destination does not overlap with loaded_addresses allocation
@@ -802,23 +747,6 @@ pub(crate) mod external {
             for (index, pubkey) in loaded_addresses.enumerate() {
                 unsafe { dest.add(index).write(*pubkey) };
             }
-        }
-    }
-
-    /// Returns an active leader state if available, otherwise None.
-    fn active_leader_state(
-        shared_leader_state: &SharedLeaderState,
-    ) -> Option<arc_swap::Guard<Arc<LeaderState>>> {
-        let guard = shared_leader_state.load();
-        if guard
-            .as_ref()
-            .working_bank()
-            .map(|bank| bank.is_complete())
-            .unwrap_or(true)
-        {
-            None
-        } else {
-            Some(guard)
         }
     }
 
