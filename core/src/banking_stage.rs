@@ -692,6 +692,8 @@ mod external {
                 tpu_to_pack,
                 progress_tracker,
                 check_workers,
+                // Simulation workers are not spawned yet.
+                simulation_workers: _,
                 workers,
             }: AgaveSession,
         ) -> Result<Vec<JoinHandle<()>>, ()> {

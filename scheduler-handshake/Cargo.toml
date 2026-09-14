@@ -4,7 +4,7 @@ description = "Agave external scheduler handshake and shared-memory session setu
 documentation = "https://docs.rs/agave-scheduler-handshake"
 # NB: This crate is versioned independently of the workspace. The major version is the
 # handshake protocol version negotiated with the external scheduler.
-version = "6.0.0"
+version = "7.0.0"
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }

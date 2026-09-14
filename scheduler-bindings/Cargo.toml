@@ -4,7 +4,7 @@ description = "Agave scheduler-binding message types for external pack process i
 documentation = "https://docs.rs/agave-scheduler-bindings"
 # NB: This crate is versioned independently of the workspace. The major version is the
 # scheduler-bindings protocol version negotiated during the handshake.
-version = "6.0.0"
+version = "7.0.0"
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }

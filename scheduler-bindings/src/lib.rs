@@ -50,6 +50,12 @@
 //! - [`CheckWorkerToPackMessage`] are sent from check worker threads within agave
 //!   back to the external scheduler process. This passes back the results of
 //!   checking the transactions.
+//! - [`PackToSimulationWorkerMessage`] are sent from the external scheduler process
+//!   to simulation worker threads within agave. This passes an ordered bundle of
+//!   transactions to be simulated atomically without committing state.
+//! - [`SimulationWorkerToPackMessage`] are sent from simulation worker threads within
+//!   agave back to the external scheduler process. This passes back the results of
+//!   simulating the bundle.
 //!
 //! Ownership and pointer lifetime rule:
 //! - Sending a message that contains offsets or pointers to memory transfers
@@ -145,6 +151,26 @@ pub struct CheckResponseRegion {
     pub num_transaction_responses: u8,
     /// Offset within the shared memory allocator for the array of
     /// [`worker_message_types::CheckResponse`] messages.
+    /// The responses are laid out back-to-back in memory starting at this offset.
+    /// There are `num_transaction_responses` responses.
+    pub transaction_responses_offset: usize,
+}
+
+/// Reference to an array of [`worker_message_types::SimulationResponse`] messages.
+/// General flow:
+/// 1. agave allocates memory for `num_transaction_responses` simulation responses.
+/// 2. agave sends a [`SimulationWorkerToPackMessage`] with `responses`.
+/// 3. External pack process processes the responses, then frees the memory for
+///    the array of responses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct SimulationResponseRegion {
+    /// The number of transactions in the original message.
+    /// This corresponds to the number of responses pointed to by
+    /// `transaction_responses_offset`.
+    pub num_transaction_responses: u8,
+    /// Offset within the shared memory allocator for the array of
+    /// [`worker_message_types::SimulationResponse`] messages.
     /// The responses are laid out back-to-back in memory starting at this offset.
     /// There are `num_transaction_responses` responses.
     pub transaction_responses_offset: usize,
@@ -292,6 +318,50 @@ pub struct PackToCheckWorkerMessage {
     pub batch: SharableTransactionBatchRegion,
 }
 
+/// Message: [Pack -> Simulation Worker]
+/// External pack process passes an ordered bundle of transactions to simulation worker
+/// threads within agave.
+///
+/// The bundle is simulated atomically and in order against the most recent bank
+/// available to the worker (the leader bank if the node is currently leader, otherwise
+/// the highest working bank). Each transaction observes the account state produced by
+/// the transactions preceding it in the bundle. No state is committed.
+///
+/// If any transaction fails, every transaction in the bundle is reported as not
+/// included: the failing transaction carries its own reason and every other
+/// transaction carries
+/// [`worker_message_types::not_included_reasons::ALL_OR_NOTHING_BATCH_FAILURE`].
+///
+/// These messages do not transfer ownership of the transactions.
+/// The external pack process is still responsible for freeing the memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct PackToSimulationWorkerMessage {
+    /// Flags on how to handle this message.
+    /// See [`simulation_message_flags`] for details.
+    pub flags: u16,
+    /// Maximum bank slot that this message will be simulated against.
+    /// If the bank selected for simulation is ahead of this slot, the response
+    /// will use [`processed_codes::MAX_WORKING_SLOT_EXCEEDED`].
+    pub max_working_slot: u64,
+    /// Offset and number of transactions in the bundle, in execution order.
+    /// See [`SharableTransactionBatchRegion`] for details.
+    /// Agave will return this batch in the response message, it is
+    /// the responsibility of the external pack process to free the memory
+    /// ONLY after receiving the response message.
+    pub batch: SharableTransactionBatchRegion,
+}
+
+pub mod simulation_message_flags {
+    //! Flags for [`crate::PackToSimulationWorkerMessage::flags`].
+    //!
+    //! No flags are currently defined. Messages with any bit set are rejected with
+    //! [`crate::processed_codes::INVALID`].
+
+    /// No special flags.
+    pub const NONE: u16 = 0;
+}
+
 pub mod check_message_flags {
     /// Transactions should check status: if transaction has already been processed
     /// or the nonce is invalid.
@@ -378,6 +448,29 @@ pub struct CheckWorkerToPackMessage {
     pub responses: CheckResponseRegion,
 }
 
+/// Message: [Simulation Worker -> Pack]
+/// Message from simulation worker threads in response to a
+/// [`PackToSimulationWorkerMessage`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct SimulationWorkerToPackMessage {
+    /// Offset and number of transactions in the batch.
+    /// See [`SharableTransactionBatchRegion`] for details.
+    /// Once the external pack process receives this message,
+    /// it is responsible for freeing the memory for this batch,
+    /// and is safe to do so - agave will hold no references to this memory
+    /// after sending this message.
+    pub batch: SharableTransactionBatchRegion,
+    /// See [`processed_codes`] for accepted values.
+    pub processed_code: u8,
+    /// Response per transaction in the batch.
+    /// When `processed_code` is [`processed_codes::PROCESSED`],
+    /// `responses.num_transaction_responses` MUST be the same as
+    /// `batch.num_transactions`. Otherwise, this field is undefined.
+    /// See [`SimulationResponseRegion`] for details.
+    pub responses: SimulationResponseRegion,
+}
+
 pub mod worker_message_types {
     use crate::SharablePubkeys;
 
@@ -402,6 +495,26 @@ pub mod worker_message_types {
         /// If included, cost units used by the transaction.
         pub cost_units: u64,
         /// If included, the fee-payer balance after execution.
+        pub fee_payer_balance: u64,
+    }
+
+    /// Response to pack for one transaction of a simulated bundle.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(C)]
+    pub struct SimulationResponse {
+        /// The slot of the bank the bundle was simulated against.
+        ///
+        /// Zero if no bank was available for simulation.
+        pub simulation_slot: u64,
+        /// Indicates whether the transaction simulated successfully as part of the
+        /// bundle. If [`not_included_reasons::NONE`], the transaction succeeded.
+        ///
+        /// [`not_included_reasons::BANK_NOT_AVAILABLE`] indicates the bank was being
+        /// retired while the bundle was simulated; the request may be retried.
+        pub not_included_reason: u8,
+        /// If successful, cost units calculated from the simulated execution.
+        pub cost_units: u64,
+        /// If successful, the fee-payer balance after simulated execution.
         pub fee_payer_balance: u64,
     }
 

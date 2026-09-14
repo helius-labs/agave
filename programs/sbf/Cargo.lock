@@ -225,11 +225,11 @@ dependencies = [
 
 [[package]]
 name = "agave-scheduler-bindings"
-version = "6.0.0"
+version = "7.0.0"
 
 [[package]]
 name = "agave-scheduler-handshake"
-version = "6.0.0"
+version = "7.0.0"
 dependencies = [
  "agave-scheduler-bindings",
  "libc",

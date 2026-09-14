@@ -8,7 +8,8 @@ use {
     agave_scheduler_bindings::{
         CheckResponseRegion, CheckWorkerToPackMessage, ExecutionResponseRegion,
         ExecutionWorkerToPackMessage, PackToCheckWorkerMessage, PackToExecutionWorkerMessage,
-        ProgressMessage, SharableTransactionBatchRegion, SharableTransactionRegion,
+        PackToSimulationWorkerMessage, ProgressMessage, SharableTransactionBatchRegion,
+        SharableTransactionRegion, SimulationResponseRegion, SimulationWorkerToPackMessage,
         TpuToPackMessage,
     },
     std::time::Duration,
@@ -17,7 +18,7 @@ use {
 
 #[test]
 fn handshake_version_matches_crate_major() {
-    assert_eq!(crate::version(), 6);
+    assert_eq!(crate::version(), 7);
     assert_eq!(ProtocolVersions::current().handshake, crate::version());
 }
 
@@ -125,6 +126,19 @@ fn message_passing_on_all_queues() {
             transaction_responses_offset: 1,
         },
     };
+    let pack_to_simulation_worker = PackToSimulationWorkerMessage {
+        flags: 0,
+        max_working_slot: 77,
+        batch,
+    };
+    let simulation_worker_to_pack = SimulationWorkerToPackMessage {
+        batch,
+        processed_code: agave_scheduler_bindings::processed_codes::PROCESSED,
+        responses: SimulationResponseRegion {
+            num_transaction_responses: 5,
+            transaction_responses_offset: 9,
+        },
+    };
 
     let server_handle = std::thread::spawn(move || {
         let mut session = server.accept().unwrap();
@@ -177,6 +191,43 @@ fn message_passing_on_all_queues() {
                 .unwrap();
         }
 
+        assert_eq!(session.simulation_workers.len(), 3);
+
+        // Receive pack_to_simulation_worker messages (one per simulation worker).
+        let mut simulation_messages = Vec::new();
+        while simulation_messages.len() < session.simulation_workers.len() {
+            for worker in &session.simulation_workers {
+                if let Some(msg) = worker.pack_to_simulation_worker.try_read() {
+                    simulation_messages.push(msg);
+                }
+            }
+        }
+        simulation_messages.sort_by_key(|msg| msg.max_working_slot);
+        assert_eq!(
+            simulation_messages,
+            (0..3)
+                .map(|i| PackToSimulationWorkerMessage {
+                    max_working_slot: pack_to_simulation_worker.max_working_slot + i,
+                    ..pack_to_simulation_worker
+                })
+                .collect::<Vec<_>>()
+        );
+
+        // Send simulation_worker_to_pack messages.
+        for (i, worker) in session.simulation_workers.iter().enumerate() {
+            worker
+                .simulation_worker_to_pack
+                .try_write(SimulationWorkerToPackMessage {
+                    batch: SharableTransactionBatchRegion {
+                        num_transactions: simulation_worker_to_pack.batch.num_transactions
+                            + i as u8,
+                        ..simulation_worker_to_pack.batch
+                    },
+                    ..simulation_worker_to_pack
+                })
+                .unwrap();
+        }
+
         // Receive pack_to_worker messages.
         for (i, worker) in session.workers.iter_mut().enumerate() {
             let msg = loop {
@@ -222,6 +273,9 @@ fn message_passing_on_all_queues() {
                 flags: 0,
                 pack_to_check_worker_capacity: 1024,
                 check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: 3,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
             },
             Duration::from_secs(1),
         )
@@ -278,6 +332,38 @@ fn message_passing_on_all_queues() {
             ]
         );
 
+        // Send pack_to_simulation_worker messages.
+        for i in 0..3 {
+            session
+                .pack_to_simulation_worker
+                .try_write(PackToSimulationWorkerMessage {
+                    max_working_slot: pack_to_simulation_worker.max_working_slot + i,
+                    ..pack_to_simulation_worker
+                })
+                .unwrap();
+        }
+
+        // Receive simulation_worker_to_pack messages.
+        let mut simulation_messages = Vec::new();
+        while simulation_messages.len() < 3 {
+            if let Some(msg) = session.simulation_worker_to_pack.try_read() {
+                simulation_messages.push(msg);
+            }
+        }
+        simulation_messages.sort_by_key(|msg| msg.batch.num_transactions);
+        assert_eq!(
+            simulation_messages,
+            (0..3u8)
+                .map(|i| SimulationWorkerToPackMessage {
+                    batch: SharableTransactionBatchRegion {
+                        num_transactions: simulation_worker_to_pack.batch.num_transactions + i,
+                        ..simulation_worker_to_pack.batch
+                    },
+                    ..simulation_worker_to_pack
+                })
+                .collect::<Vec<_>>()
+        );
+
         // Send pack_to_worker messages.
         for (i, worker) in session.workers.iter_mut().enumerate() {
             worker
@@ -330,6 +416,9 @@ fn check_worker_queues_use_dedicated_capacities() {
         flags: 0,
         pack_to_check_worker_capacity: CHECK_REQUEST_CAPACITY,
         check_worker_to_pack_capacity: CHECK_RESPONSE_CAPACITY,
+        simulation_worker_count: 1,
+        pack_to_simulation_worker_capacity: 1024,
+        simulation_worker_to_pack_capacity: 1024,
     };
     let (_agave, files) = Server::setup_session(logon).unwrap();
 
@@ -376,6 +465,9 @@ fn accept_worker_count_max() {
                 flags: 0,
                 pack_to_check_worker_capacity: 1024,
                 check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: 1,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
             },
             Duration::from_secs(1),
         );
@@ -414,6 +506,9 @@ fn reject_worker_count_low() {
                 flags: 0,
                 pack_to_check_worker_capacity: 1024,
                 check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: 1,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
             },
             Duration::from_secs(1),
         );
@@ -455,6 +550,9 @@ fn reject_worker_count_high() {
                 flags: 0,
                 pack_to_check_worker_capacity: 1024,
                 check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: 1,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
             },
             Duration::from_secs(1),
         );
@@ -496,6 +594,9 @@ fn reject_check_worker_count_low() {
                 flags: 0,
                 pack_to_check_worker_capacity: 1024,
                 check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: 1,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
             },
             Duration::from_secs(1),
         );
@@ -537,6 +638,9 @@ fn reject_check_worker_count_high() {
                 flags: 0,
                 pack_to_check_worker_capacity: 1024,
                 check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: 1,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
             },
             Duration::from_secs(1),
         );
@@ -544,6 +648,90 @@ fn reject_check_worker_count_high() {
             panic!();
         };
         assert_eq!(reason, "Check worker count; count=100");
+    });
+
+    client_handle.join().unwrap();
+    server_handle.join().unwrap();
+}
+
+#[test]
+fn accept_zero_simulation_workers() {
+    let logon = ClientLogon {
+        worker_count: 1,
+        check_worker_count: 1,
+        allocator_size: 64 * 1024 * 1024,
+        allocator_handles: 1,
+        tpu_to_pack_capacity: 65536,
+        progress_tracker_capacity: 256,
+        pack_to_worker_capacity: 1024,
+        worker_to_pack_capacity: 1024,
+        flags: 0,
+        pack_to_check_worker_capacity: 1024,
+        check_worker_to_pack_capacity: 1024,
+        simulation_worker_count: 0,
+        pack_to_simulation_worker_capacity: 1024,
+        simulation_worker_to_pack_capacity: 1024,
+    };
+    let (agave, files) = Server::setup_session(logon).unwrap();
+    assert!(agave.simulation_workers.is_empty());
+    // Global objects plus one queue pair per execution worker.
+    assert_eq!(files.len(), 7 + 2);
+
+    let client = crate::client::setup_session(&logon, files).unwrap();
+    // The simulation queues exist even when no simulation workers were requested.
+    let message = PackToSimulationWorkerMessage {
+        flags: 0,
+        max_working_slot: 1,
+        batch: SharableTransactionBatchRegion {
+            num_transactions: 1,
+            transactions_offset: 0,
+        },
+    };
+    client.pack_to_simulation_worker.try_write(message).unwrap();
+    assert!(client.simulation_worker_to_pack.try_read().is_none());
+}
+
+#[test]
+fn reject_simulation_worker_count_high() {
+    let ipc = NamedTempFile::new().unwrap();
+    std::fs::remove_file(ipc.path()).unwrap();
+    let mut server = Server::new(ipc.path()).unwrap();
+
+    let server_handle = std::thread::spawn(move || {
+        let res = server.accept();
+        let Err(AgaveHandshakeError::SimulationWorkerCount(count)) = res else {
+            panic!();
+        };
+        assert_eq!(count, MAX_WORKERS + 1);
+    });
+    let client_handle = std::thread::spawn(move || {
+        let res = connect(
+            ipc,
+            ClientLogon {
+                worker_count: 1,
+                check_worker_count: 1,
+                allocator_size: 1024 * 1024 * 1024,
+                allocator_handles: 3,
+                tpu_to_pack_capacity: 65536,
+                progress_tracker_capacity: 256,
+                pack_to_worker_capacity: 1024,
+                worker_to_pack_capacity: 1024,
+                flags: 0,
+                pack_to_check_worker_capacity: 1024,
+                check_worker_to_pack_capacity: 1024,
+                simulation_worker_count: MAX_WORKERS + 1,
+                pack_to_simulation_worker_capacity: 1024,
+                simulation_worker_to_pack_capacity: 1024,
+            },
+            Duration::from_secs(1),
+        );
+        let Err(ClientHandshakeError::Rejected(reason)) = res else {
+            panic!();
+        };
+        assert_eq!(
+            reason,
+            format!("Simulation worker count; count={}", MAX_WORKERS + 1)
+        );
     });
 
     client_handle.join().unwrap();

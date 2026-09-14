@@ -3,7 +3,10 @@ use {
         ClientHandshakeError, ClientLogon, ClientSession, ClientWorkerSession, ProtocolVersions,
         shared::{LOGON_FAILURE, MAX_WORKERS},
     },
-    agave_scheduler_bindings::{CheckWorkerToPackMessage, PackToCheckWorkerMessage},
+    agave_scheduler_bindings::{
+        CheckWorkerToPackMessage, PackToCheckWorkerMessage, PackToSimulationWorkerMessage,
+        SimulationWorkerToPackMessage,
+    },
     libc::CMSG_LEN,
     nix::sys::socket::{self, ControlMessageOwned, MsgFlags, UnixAddr},
     rts_alloc::Allocator,
@@ -20,7 +23,10 @@ use {
 };
 
 /// Number of global shared memory objects (in addition to per worker objects).
-const GLOBAL_SHMEM: usize = 5;
+///
+/// Allocator, tpu_to_pack, progress_tracker, and the request/response queue pair for each of
+/// the check and simulation worker pools.
+const GLOBAL_SHMEM: usize = 7;
 
 /// The maximum size in bytes of the control message containing the queues assuming [`MAX_WORKERS`]
 /// is respected.
@@ -154,6 +160,8 @@ pub fn setup_session(
         progress_tracker_file,
         pack_to_check_worker_file,
         check_worker_to_pack_file,
+        pack_to_simulation_worker_file,
+        simulation_worker_to_pack_file,
     ] = global_files
     else {
         unreachable!();
@@ -185,6 +193,18 @@ pub fn setup_session(
         // SAFETY: the server initialized this FD as a matching MPMC producer.
         check_worker_to_pack: unsafe {
             shaq::mpmc::Consumer::<CheckWorkerToPackMessage>::join(check_worker_to_pack_file)?
+        },
+        // SAFETY: the server initialized this FD as a matching MPMC consumer.
+        pack_to_simulation_worker: unsafe {
+            shaq::mpmc::Producer::<PackToSimulationWorkerMessage>::join(
+                pack_to_simulation_worker_file,
+            )?
+        },
+        // SAFETY: the server initialized this FD as a matching MPMC producer.
+        simulation_worker_to_pack: unsafe {
+            shaq::mpmc::Consumer::<SimulationWorkerToPackMessage>::join(
+                simulation_worker_to_pack_file,
+            )?
         },
         workers: worker_files
             .chunks(2)

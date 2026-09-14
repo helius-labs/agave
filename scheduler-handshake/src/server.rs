@@ -1,7 +1,7 @@
 use {
     crate::{
-        AgaveCheckWorkerSession, AgaveHandshakeError, AgaveTpuToPackSession, AgaveWorkerSession,
-        ClientLogon, ProtocolVersions,
+        AgaveCheckWorkerSession, AgaveHandshakeError, AgaveSimulationWorkerSession,
+        AgaveTpuToPackSession, AgaveWorkerSession, ClientLogon, ProtocolVersions,
         shared::{
             AgaveSession, GLOBAL_ALLOCATORS, LOGON_FAILURE, LOGON_SUCCESS, MAX_ALLOCATOR_HANDLES,
             MAX_WORKERS,
@@ -9,6 +9,7 @@ use {
     },
     agave_scheduler_bindings::{
         CheckWorkerToPackMessage, PackToCheckWorkerMessage, PackToExecutionWorkerMessage,
+        PackToSimulationWorkerMessage, SimulationWorkerToPackMessage,
     },
     nix::sys::socket::{self, ControlMessage, MsgFlags, UnixAddr},
     rts_alloc::Allocator,
@@ -157,6 +158,13 @@ impl Server {
             ));
         }
 
+        // Simulation workers are optional, but still bounded.
+        if logon.simulation_worker_count > MAX_WORKERS {
+            return Err(AgaveHandshakeError::SimulationWorkerCount(
+                logon.simulation_worker_count,
+            ));
+        }
+
         // Hard limit allocator handles to 128.
         if !(1..=MAX_ALLOCATOR_HANDLES).contains(&logon.allocator_handles) {
             return Err(AgaveHandshakeError::AllocatorHandles(
@@ -180,8 +188,9 @@ impl Server {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        // Setup the allocator in shared memory (`worker_count`, `check_worker_count`, and
-        // `allocator_handles` have been validated so this won't panic).
+        // Setup the allocator in shared memory (`worker_count`, `check_worker_count`,
+        // `simulation_worker_count`, and `allocator_handles` have been validated so this won't
+        // panic).
         let (allocator_file, tpu_to_pack_allocator) = Self::create_allocator(&logon)?;
 
         // Setup the global queues.
@@ -196,6 +205,15 @@ impl Server {
             logon.check_worker_to_pack_capacity,
             true,
         )?;
+        let (pack_to_simulation_worker_file, _) =
+            Self::create_mpmc_consumer::<PackToSimulationWorkerMessage>(
+                logon.pack_to_simulation_worker_capacity,
+            )?;
+        let (simulation_worker_to_pack_file, _) = Self::create_mpmc_producer::<
+            SimulationWorkerToPackMessage,
+        >(
+            logon.simulation_worker_to_pack_capacity, true
+        )?;
 
         let check_workers = (0..logon.check_worker_count)
             .map(|_| {
@@ -208,6 +226,22 @@ impl Server {
                     // SAFETY: this file was initialized above using the same message type.
                     check_worker_to_pack: unsafe {
                         shaq::mpmc::Producer::join(&check_worker_to_pack_file)?
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, AgaveHandshakeError>>()?;
+
+        let simulation_workers = (0..logon.simulation_worker_count)
+            .map(|_| {
+                Ok(AgaveSimulationWorkerSession {
+                    allocator: Allocator::join(&allocator_file)?,
+                    // SAFETY: this file was initialized above using the same message type.
+                    pack_to_simulation_worker: unsafe {
+                        shaq::mpmc::Consumer::join(&pack_to_simulation_worker_file)?
+                    },
+                    // SAFETY: this file was initialized above using the same message type.
+                    simulation_worker_to_pack: unsafe {
+                        shaq::mpmc::Producer::join(&simulation_worker_to_pack_file)?
                     },
                 })
             })
@@ -244,6 +278,7 @@ impl Server {
                 },
                 progress_tracker,
                 check_workers,
+                simulation_workers,
                 workers,
             },
             [
@@ -252,6 +287,8 @@ impl Server {
                 progress_tracker_file,
                 pack_to_check_worker_file,
                 check_worker_to_pack_file,
+                pack_to_simulation_worker_file,
+                simulation_worker_to_pack_file,
             ]
             .into_iter()
             .chain(worker_files)
@@ -264,6 +301,8 @@ impl Server {
             .checked_add(logon.worker_count)
             .unwrap()
             .checked_add(logon.check_worker_count)
+            .unwrap()
+            .checked_add(logon.simulation_worker_count)
             .unwrap()
             .checked_add(logon.allocator_handles)
             .unwrap();

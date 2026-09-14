@@ -1,7 +1,8 @@
 use {
     agave_scheduler_bindings::{
         CheckWorkerToPackMessage, ExecutionWorkerToPackMessage, PackToCheckWorkerMessage,
-        PackToExecutionWorkerMessage, ProgressMessage, TpuToPackMessage,
+        PackToExecutionWorkerMessage, PackToSimulationWorkerMessage, ProgressMessage,
+        SimulationWorkerToPackMessage, TpuToPackMessage,
     },
     rts_alloc::Allocator,
     std::fmt,
@@ -93,6 +94,15 @@ pub struct ClientLogon {
     pub pack_to_check_worker_capacity: usize,
     /// The minimum capacity of the check-worker-to-scheduler queue in messages.
     pub check_worker_to_pack_capacity: usize,
+    /// The number of Agave simulation worker threads that will be spawned to handle bundle
+    /// simulation requests. May be zero if the external scheduler does not simulate bundles.
+    pub simulation_worker_count: usize,
+    /// The minimum capacity of the scheduler-to-simulation-worker queue in messages.
+    /// Must be non-zero even if `simulation_worker_count` is zero.
+    pub pack_to_simulation_worker_capacity: usize,
+    /// The minimum capacity of the simulation-worker-to-scheduler queue in messages.
+    /// Must be non-zero even if `simulation_worker_count` is zero.
+    pub simulation_worker_to_pack_capacity: usize,
     // NB: If adding more fields please ensure:
     // - The fields are zeroable.
     // - If possible the fields are backwards compatible:
@@ -123,6 +133,8 @@ pub struct ClientSession {
     pub progress_tracker: shaq::spsc::Consumer<ProgressMessage>,
     pub pack_to_check_worker: shaq::mpmc::Producer<PackToCheckWorkerMessage>,
     pub check_worker_to_pack: shaq::mpmc::Consumer<CheckWorkerToPackMessage>,
+    pub pack_to_simulation_worker: shaq::mpmc::Producer<PackToSimulationWorkerMessage>,
+    pub simulation_worker_to_pack: shaq::mpmc::Consumer<SimulationWorkerToPackMessage>,
     pub workers: Vec<ClientWorkerSession>,
 }
 
@@ -155,6 +167,7 @@ pub struct AgaveSession {
     pub tpu_to_pack: AgaveTpuToPackSession,
     pub progress_tracker: shaq::spsc::Producer<ProgressMessage>,
     pub check_workers: Vec<AgaveCheckWorkerSession>,
+    pub simulation_workers: Vec<AgaveSimulationWorkerSession>,
     pub workers: Vec<AgaveWorkerSession>,
 }
 
@@ -176,6 +189,13 @@ pub struct AgaveCheckWorkerSession {
     pub allocator: Allocator,
     pub pack_to_check_worker: shaq::mpmc::Consumer<PackToCheckWorkerMessage>,
     pub check_worker_to_pack: shaq::mpmc::Producer<CheckWorkerToPackMessage>,
+}
+
+/// Shared memory objects for a single bundle simulation worker.
+pub struct AgaveSimulationWorkerSession {
+    pub allocator: Allocator,
+    pub pack_to_simulation_worker: shaq::mpmc::Consumer<PackToSimulationWorkerMessage>,
+    pub simulation_worker_to_pack: shaq::mpmc::Producer<SimulationWorkerToPackMessage>,
 }
 
 /// Potential errors that can occur during the Agave side of the handshake.
@@ -200,6 +220,8 @@ pub enum AgaveHandshakeError {
     WorkerCount(usize),
     #[error("Check worker count; count={0}")]
     CheckWorkerCount(usize),
+    #[error("Simulation worker count; count={0}")]
+    SimulationWorkerCount(usize),
     #[error("Allocator handles; count={0}")]
     AllocatorHandles(usize),
     #[error("Rts alloc; err={0:?}")]
