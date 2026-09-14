@@ -31,6 +31,17 @@ type RtsAllocError = rts_alloc::error::Error;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(1);
 const SHMEM_NAME: &CStr = c"/agave-scheduler-bindings";
 
+/// Non-Linux targets create shared memory through a fixed `shm_open` name, so concurrent
+/// session setup (e.g. parallel tests) races on that name. Serialize setup there; Linux uses
+/// anonymous `memfd_create` and needs no lock.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "l4re",
+    target_os = "android",
+    target_os = "emscripten"
+)))]
+static SHMEM_SETUP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Implements the Agave side of the scheduler bindings handshake protocol.
 pub struct Server {
     listener: UnixListener,
@@ -159,6 +170,16 @@ impl Server {
     pub fn setup_session(
         logon: ClientLogon,
     ) -> Result<(AgaveSession, Vec<File>), AgaveHandshakeError> {
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "l4re",
+            target_os = "android",
+            target_os = "emscripten"
+        )))]
+        let _shmem_setup_guard = SHMEM_SETUP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         // Setup the allocator in shared memory (`worker_count`, `check_worker_count`, and
         // `allocator_handles` have been validated so this won't panic).
         let (allocator_file, tpu_to_pack_allocator) = Self::create_allocator(&logon)?;
@@ -416,7 +437,16 @@ impl Server {
     fn align_file_size(size: usize, huge: bool) -> usize {
         match huge {
             true => size.next_multiple_of(2 * 1024 * 1024),
-            false => size.next_multiple_of(4096),
+            false => size.next_multiple_of(Self::page_size()),
         }
+    }
+
+    /// The system page size. Shared memory objects are sized in whole pages by the kernel, so
+    /// aligning to a smaller granularity (e.g. 4 KiB on a 16 KiB-page system) makes the mapped
+    /// region larger than the size the queues were initialized with.
+    fn page_size() -> usize {
+        // SAFETY: `sysconf` is thread-safe and takes no pointer arguments.
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        usize::try_from(page_size).unwrap_or(4096)
     }
 }
