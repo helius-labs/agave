@@ -1,5 +1,6 @@
 mod batch_id_generator;
 pub(crate) mod check_worker;
+pub(crate) mod external_translation;
 pub(crate) mod greedy_scheduler;
 mod in_flight_tracker;
 pub(crate) mod receive_and_buffer;

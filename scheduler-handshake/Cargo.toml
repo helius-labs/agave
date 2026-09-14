@@ -1,0 +1,32 @@
+[package]
+name = "agave-scheduler-handshake"
+description = "Agave external scheduler handshake and shared-memory session setup"
+documentation = "https://docs.rs/agave-scheduler-handshake"
+# NB: This crate is versioned independently of the workspace. The major version is the
+# handshake protocol version negotiated with the external scheduler.
+version = "7.0.0"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[target."cfg(unix)".dependencies]
+agave-scheduler-bindings = { workspace = true }
+libc = { workspace = true }
+nix = { workspace = true, features = ["socket", "uio"] }
+rts-alloc = { workspace = true }
+shaq = { workspace = true }
+thiserror = { workspace = true }
+
+[target."cfg(unix)".dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
