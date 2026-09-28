@@ -1,12 +1,22 @@
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "l4re",
+    target_os = "android",
+    target_os = "emscripten"
+)))]
+use std::sync::Mutex;
 use {
     crate::handshake::{
-        AgaveHandshakeError, AgaveTpuToPackSession, AgaveWorkerSession, ClientLogon,
+        AgaveHandshakeError, AgaveSimulationWorkerSession, AgaveTpuToPackSession,
+        AgaveWorkerSession, ClientLogon,
         shared::{
             AgaveSession, GLOBAL_ALLOCATORS, LOGON_FAILURE, LOGON_SUCCESS, MAX_ALLOCATOR_HANDLES,
             MAX_WORKERS, VERSION,
         },
     },
-    agave_scheduler_bindings::PackToWorkerMessage,
+    agave_scheduler_bindings::{
+        PackToSimulationWorkerMessage, PackToWorkerMessage, SimulationWorkerToPackMessage,
+    },
     nix::sys::socket::{self, ControlMessage, MsgFlags, UnixAddr},
     rts_alloc::Allocator,
     std::{
@@ -27,6 +37,13 @@ type RtsAllocError = rts_alloc::error::Error;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(1);
 const SHMEM_NAME: &CStr = c"/agave-scheduler-bindings";
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "l4re",
+    target_os = "android",
+    target_os = "emscripten"
+)))]
+static SHMEM_SETUP_LOCK: Mutex<()> = Mutex::new(());
 
 /// Implements the Agave side of the scheduler bindings handshake protocol.
 pub struct Server {
@@ -132,6 +149,22 @@ impl Server {
             return Err(AgaveHandshakeError::WorkerCount(logon.worker_count));
         }
 
+        if logon.simulation_worker_count > MAX_WORKERS {
+            return Err(AgaveHandshakeError::SimulationWorkerCount(
+                logon.simulation_worker_count,
+            ));
+        }
+        if logon.pack_to_simulation_worker_capacity == 0 {
+            return Err(AgaveHandshakeError::QueueCapacity(
+                "pack_to_simulation_worker",
+            ));
+        }
+        if logon.simulation_worker_to_pack_capacity == 0 {
+            return Err(AgaveHandshakeError::QueueCapacity(
+                "simulation_worker_to_pack",
+            ));
+        }
+
         // Hard limit allocator handles to 128.
         if !(1..=MAX_ALLOCATOR_HANDLES).contains(&logon.allocator_handles) {
             return Err(AgaveHandshakeError::AllocatorHandles(
@@ -145,6 +178,16 @@ impl Server {
     pub fn setup_session(
         logon: ClientLogon,
     ) -> Result<(AgaveSession, Vec<File>), AgaveHandshakeError> {
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "l4re",
+            target_os = "android",
+            target_os = "emscripten"
+        )))]
+        let _shmem_setup_guard = SHMEM_SETUP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         // Setup the allocator in shared memory (`worker_count` & `allocator_handles` have been
         // validated so this won't panic).
         let (allocator_file, tpu_to_pack_allocator) = Self::create_allocator(&logon)?;
@@ -154,6 +197,24 @@ impl Server {
             Self::create_producer(logon.tpu_to_pack_capacity, true)?;
         let (progress_tracker_file, progress_tracker) =
             Self::create_producer(logon.progress_tracker_capacity, false)?;
+        let (pack_to_simulation_worker_file, pack_to_simulation_worker) =
+            Self::create_mpmc_consumer::<PackToSimulationWorkerMessage>(
+                logon.pack_to_simulation_worker_capacity,
+            )?;
+        let (simulation_worker_to_pack_file, simulation_worker_to_pack) =
+            Self::create_mpmc_producer::<SimulationWorkerToPackMessage>(
+                logon.simulation_worker_to_pack_capacity,
+            )?;
+
+        let simulation_workers = (0..logon.simulation_worker_count)
+            .map(|_| {
+                Ok(AgaveSimulationWorkerSession {
+                    allocator: Allocator::join(&allocator_file)?,
+                    pack_to_simulation_worker: pack_to_simulation_worker.clone(),
+                    simulation_worker_to_pack: simulation_worker_to_pack.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, AgaveHandshakeError>>()?;
 
         // Setup the worker sessions.
         let (worker_files, workers) = (0..logon.worker_count).try_fold(
@@ -185,18 +246,27 @@ impl Server {
                     producer: tpu_to_pack_queue,
                 },
                 progress_tracker,
+                simulation_workers,
                 workers,
             },
-            [allocator_file, tpu_to_pack_file, progress_tracker_file]
-                .into_iter()
-                .chain(worker_files)
-                .collect(),
+            [
+                allocator_file,
+                tpu_to_pack_file,
+                progress_tracker_file,
+                pack_to_simulation_worker_file,
+                simulation_worker_to_pack_file,
+            ]
+            .into_iter()
+            .chain(worker_files)
+            .collect(),
         ))
     }
 
     fn create_allocator(logon: &ClientLogon) -> Result<(File, Allocator), RtsAllocError> {
         let allocator_count = GLOBAL_ALLOCATORS
             .checked_add(logon.worker_count)
+            .unwrap()
+            .checked_add(logon.simulation_worker_count)
             .unwrap()
             .checked_add(logon.allocator_handles)
             .unwrap();
@@ -256,6 +326,34 @@ impl Server {
         };
 
         // Try to create with huge pages, fallback to regular pages.
+        create(true).or_else(|_| create(false))
+    }
+
+    fn create_mpmc_consumer<T>(
+        capacity: usize,
+    ) -> Result<(File, shaq::mpmc::Consumer<T>), ShaqError> {
+        let create = |huge: bool| {
+            let file = Self::create_shmem(huge)?;
+            let minimum_file_size = shaq::mpmc::minimum_file_size::<T>(capacity);
+            let file_size = Self::align_file_size(minimum_file_size, huge);
+            // SAFETY: this is the unique initializer for the new shared-memory file.
+            unsafe { shaq::mpmc::Consumer::create(&file, file_size) }
+                .map(|consumer| (file, consumer))
+        };
+        create(true).or_else(|_| create(false))
+    }
+
+    fn create_mpmc_producer<T>(
+        capacity: usize,
+    ) -> Result<(File, shaq::mpmc::Producer<T>), ShaqError> {
+        let create = |huge: bool| {
+            let file = Self::create_shmem(huge)?;
+            let minimum_file_size = shaq::mpmc::minimum_file_size::<T>(capacity);
+            let file_size = Self::align_file_size(minimum_file_size, huge);
+            // SAFETY: this is the unique initializer for the new shared-memory file.
+            unsafe { shaq::mpmc::Producer::create(&file, file_size) }
+                .map(|producer| (file, producer))
+        };
         create(true).or_else(|_| create(false))
     }
 
@@ -333,7 +431,14 @@ impl Server {
     fn align_file_size(size: usize, huge: bool) -> usize {
         match huge {
             true => size.next_multiple_of(2 * 1024 * 1024),
-            false => size.next_multiple_of(4096),
+            false => {
+                let page_size = unsafe {
+                    // SAFETY: sysconf is thread-safe and has no pointer arguments.
+                    libc::sysconf(libc::_SC_PAGESIZE)
+                };
+                let page_size = usize::try_from(page_size).unwrap_or(4096);
+                size.next_multiple_of(page_size)
+            }
         }
     }
 }

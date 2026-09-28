@@ -1,6 +1,7 @@
 use {
     agave_scheduler_bindings::{
-        PackToWorkerMessage, ProgressMessage, TpuToPackMessage, WorkerToPackMessage,
+        PackToSimulationWorkerMessage, PackToWorkerMessage, ProgressMessage,
+        SimulationWorkerToPackMessage, TpuToPackMessage, WorkerToPackMessage,
     },
     rts_alloc::Allocator,
     thiserror::Error,
@@ -12,7 +13,7 @@ pub(crate) type ShaqError = shaq::error::Error;
 pub const MAX_WORKERS: usize = 64;
 
 /// Protocol version.
-pub(crate) const VERSION: u64 = 4;
+pub(crate) const VERSION: u64 = 6;
 pub(crate) const LOGON_SUCCESS: u8 = 0x01;
 pub(crate) const LOGON_FAILURE: u8 = 0x02;
 pub(crate) const MAX_ALLOCATOR_HANDLES: usize = 128;
@@ -36,6 +37,12 @@ pub struct ClientLogon {
     pub pack_to_worker_capacity: usize,
     /// The minimum capacity of the `worker_to_pack` queue in messages.
     pub worker_to_pack_capacity: usize,
+    /// Number of simulation workers. Zero disables the dedicated simulation pool.
+    pub simulation_worker_count: usize,
+    /// Minimum capacity of the shared scheduler-to-simulation-worker queue.
+    pub pack_to_simulation_worker_capacity: usize,
+    /// Minimum capacity of the shared simulation-worker-to-scheduler queue.
+    pub simulation_worker_to_pack_capacity: usize,
     /// Flags that control the behavior of the new scheduling session.
     pub flags: u16,
     // NB: If adding more fields please ensure:
@@ -66,6 +73,8 @@ pub struct ClientSession {
     pub allocators: Vec<Allocator>,
     pub tpu_to_pack: shaq::spsc::Consumer<TpuToPackMessage>,
     pub progress_tracker: shaq::spsc::Consumer<ProgressMessage>,
+    pub pack_to_simulation_worker: shaq::mpmc::Producer<PackToSimulationWorkerMessage>,
+    pub simulation_worker_to_pack: shaq::mpmc::Consumer<SimulationWorkerToPackMessage>,
     pub workers: Vec<ClientWorkerSession>,
 }
 
@@ -97,6 +106,7 @@ pub struct AgaveSession {
     pub flags: u16,
     pub tpu_to_pack: AgaveTpuToPackSession,
     pub progress_tracker: shaq::spsc::Producer<ProgressMessage>,
+    pub simulation_workers: Vec<AgaveSimulationWorkerSession>,
     pub workers: Vec<AgaveWorkerSession>,
 }
 
@@ -111,6 +121,13 @@ pub struct AgaveWorkerSession {
     pub allocator: Allocator,
     pub pack_to_worker: shaq::spsc::Consumer<PackToWorkerMessage>,
     pub worker_to_pack: shaq::spsc::Producer<WorkerToPackMessage>,
+}
+
+/// Shared-memory objects for one member of the simulation worker pool.
+pub struct AgaveSimulationWorkerSession {
+    pub allocator: Allocator,
+    pub pack_to_simulation_worker: shaq::mpmc::Consumer<PackToSimulationWorkerMessage>,
+    pub simulation_worker_to_pack: shaq::mpmc::Producer<SimulationWorkerToPackMessage>,
 }
 
 /// Potential errors that can occur during the Agave side of the handshake.
@@ -130,6 +147,10 @@ pub enum AgaveHandshakeError {
     Version { server: u64, client: u64 },
     #[error("Worker count; count={0}")]
     WorkerCount(usize),
+    #[error("Simulation worker count; count={0}")]
+    SimulationWorkerCount(usize),
+    #[error("Queue capacity must be non-zero; queue={0}")]
+    QueueCapacity(&'static str),
     #[error("Allocator handles; count={0}")]
     AllocatorHandles(usize),
     #[error("Rts alloc; err={0:?}")]

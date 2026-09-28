@@ -3,6 +3,7 @@ use {
         ClientHandshakeError, ClientLogon, ClientSession, ClientWorkerSession,
         shared::{LOGON_FAILURE, MAX_WORKERS, VERSION},
     },
+    agave_scheduler_bindings::{PackToSimulationWorkerMessage, SimulationWorkerToPackMessage},
     libc::CMSG_LEN,
     nix::sys::socket::{self, ControlMessageOwned, MsgFlags, UnixAddr},
     rts_alloc::Allocator,
@@ -19,7 +20,7 @@ use {
 };
 
 /// Number of global shared memory objects (in addition to per worker objects).
-const GLOBAL_SHMEM: usize = 3;
+const GLOBAL_SHMEM: usize = 5;
 
 /// The maximum size in bytes of the control message containing the queues assuming [`MAX_WORKERS`]
 /// is respected.
@@ -138,7 +139,14 @@ pub fn setup_session(
         return Err(ClientHandshakeError::ProtocolViolation);
     }
     let (global_files, worker_files) = files.split_at(GLOBAL_SHMEM);
-    let [allocator_file, tpu_to_pack_file, progress_tracker_file] = global_files else {
+    let [
+        allocator_file,
+        tpu_to_pack_file,
+        progress_tracker_file,
+        pack_to_simulation_worker_file,
+        simulation_worker_to_pack_file,
+    ] = global_files
+    else {
         unreachable!();
     };
 
@@ -161,6 +169,18 @@ pub fn setup_session(
         allocators,
         tpu_to_pack: unsafe { shaq::spsc::Consumer::join(tpu_to_pack_file)? },
         progress_tracker: unsafe { shaq::spsc::Consumer::join(progress_tracker_file)? },
+        // SAFETY: the server initialized this file as the matching MPMC consumer endpoint.
+        pack_to_simulation_worker: unsafe {
+            shaq::mpmc::Producer::<PackToSimulationWorkerMessage>::join(
+                pack_to_simulation_worker_file,
+            )?
+        },
+        // SAFETY: the server initialized this file as the matching MPMC producer endpoint.
+        simulation_worker_to_pack: unsafe {
+            shaq::mpmc::Consumer::<SimulationWorkerToPackMessage>::join(
+                simulation_worker_to_pack_file,
+            )?
+        },
         workers: worker_files
             .chunks(2)
             .map(|window| {

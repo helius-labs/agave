@@ -1,0 +1,19 @@
+[package]
+name = "agave-scheduler-bindings"
+description = "Helius scheduler extensions to the upstream Agave bindings ABI"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[features]
+agave-unstable-api = []
+
+[dependencies]
+upstream-scheduler-bindings = { package = "agave-scheduler-bindings", version = "=5.0.0" }
+
+[lints]
+workspace = true

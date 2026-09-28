@@ -1338,6 +1338,9 @@ pub(crate) mod external {
                 progress_tracker_capacity: 16,
                 pack_to_worker_capacity: 16,
                 worker_to_pack_capacity: 16,
+                simulation_worker_count: 0,
+                pack_to_simulation_worker_capacity: 1,
+                simulation_worker_to_pack_capacity: 1,
                 flags: 0,
             };
             let (mut agave_session, files) = Server::setup_session(logon).unwrap();
@@ -2359,7 +2362,7 @@ fn try_drain_iter<T>(work: T, receiver: &Receiver<T>) -> impl Iterator<Item = T>
 }
 
 /// Returns an active leader state if available, otherwise None.
-fn active_leader_state(
+pub(crate) fn active_leader_state(
     shared_leader_state: &SharedLeaderState,
 ) -> Option<arc_swap::Guard<Arc<LeaderState>>> {
     let guard = shared_leader_state.load();
