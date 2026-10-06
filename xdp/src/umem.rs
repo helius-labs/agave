@@ -18,6 +18,13 @@ pub struct FrameOffset(pub(crate) usize);
 
 pub struct CompletedFrameOffset(pub(crate) FrameOffset);
 
+pub struct RxFrameOffset(pub(crate) FrameOffset);
+
+pub struct ReceivedFrame {
+    pub(crate) offset: RxFrameOffset,
+    pub(crate) len: usize,
+}
+
 pub trait Frame {
     fn offset(&self) -> FrameOffset;
     fn len(&self) -> usize;
@@ -38,6 +45,7 @@ pub trait Umem {
     fn reserve(&self) -> Option<Self::Frame>;
     fn release(&self, frame: Self::Frame);
     fn release_completed(&self, frame: CompletedFrameOffset);
+    fn received(&self, frame: ReceivedFrame) -> Self::Frame;
     fn frame_size(&self) -> usize;
     fn capacity(&self) -> usize;
     fn available(&self) -> usize;
@@ -65,6 +73,10 @@ impl<U: Umem> Umem for Arc<U> {
 
     fn release_completed(&self, frame: CompletedFrameOffset) {
         self.as_ref().release_completed(frame);
+    }
+
+    fn received(&self, frame: ReceivedFrame) -> Self::Frame {
+        self.as_ref().received(frame)
     }
 
     fn frame_size(&self) -> usize {
@@ -183,11 +195,19 @@ impl<'a> Umem for SliceUmem<'a> {
     }
 
     fn release(&self, frame: Self::Frame) {
-        push_available_frame(&self.available_frames, frame.offset());
+        push_available_frame(&self.available_frames, frame.offset(), self.frame_size);
     }
 
     fn release_completed(&self, frame: CompletedFrameOffset) {
-        push_available_frame(&self.available_frames, frame.0);
+        push_available_frame(&self.available_frames, frame.0, self.frame_size);
+    }
+
+    fn received(&self, frame: ReceivedFrame) -> SliceUmemFrame<'a> {
+        SliceUmemFrame {
+            offset: frame.offset.0.0,
+            len: frame.len,
+            _buf: PhantomData,
+        }
     }
 
     fn capacity(&self) -> usize {
@@ -266,11 +286,18 @@ impl Umem for OwnedUmem {
     }
 
     fn release(&self, frame: Self::Frame) {
-        push_available_frame(&self.available_frames, frame.offset());
+        push_available_frame(&self.available_frames, frame.offset(), self.frame_size);
     }
 
     fn release_completed(&self, frame: CompletedFrameOffset) {
-        push_available_frame(&self.available_frames, frame.0);
+        push_available_frame(&self.available_frames, frame.0, self.frame_size);
+    }
+
+    fn received(&self, frame: ReceivedFrame) -> OwnedUmemFrame {
+        OwnedUmemFrame {
+            offset: frame.offset.0.0,
+            len: frame.len,
+        }
     }
 
     fn capacity(&self) -> usize {
@@ -294,14 +321,23 @@ impl Umem for OwnedUmem {
 fn available_frames(capacity: usize, frame_size: u32) -> ArrayQueue<FrameOffset> {
     let available_frames = ArrayQueue::new(capacity);
     for index in 0..capacity {
-        push_available_frame(&available_frames, FrameOffset(index * frame_size as usize));
+        push_available_frame(
+            &available_frames,
+            FrameOffset(index * frame_size as usize),
+            frame_size,
+        );
     }
     available_frames
 }
 
-fn push_available_frame(available_frames: &ArrayQueue<FrameOffset>, offset: FrameOffset) {
+fn push_available_frame(
+    available_frames: &ArrayQueue<FrameOffset>,
+    offset: FrameOffset,
+    frame_size: u32,
+) {
+    let frame_start = offset.0 & !(frame_size as usize - 1);
     available_frames
-        .push(offset)
+        .push(FrameOffset(frame_start))
         .expect("available UMEM frame queue unexpectedly full");
 }
 
@@ -397,7 +433,9 @@ impl DerefMut for PageAlignedMemory {
 #[cfg(test)]
 mod tests {
     use {
-        crate::umem::{CompletedFrameOffset, Frame, SliceUmem, Umem},
+        crate::umem::{
+            CompletedFrameOffset, Frame, FrameOffset, ReceivedFrame, RxFrameOffset, SliceUmem, Umem,
+        },
         std::slice,
     };
 
@@ -433,5 +471,54 @@ mod tests {
         umem.release_completed(CompletedFrameOffset(offset));
 
         assert_eq!(umem.available(), umem.capacity());
+    }
+
+    #[test]
+    fn test_received_maps_packet_bytes() {
+        let mut buffer = [0; 32];
+        buffer[20..23].copy_from_slice(&[7, 8, 9]);
+        let umem = SliceUmem::new(&mut buffer, 16).unwrap();
+
+        let frame = umem.received(ReceivedFrame {
+            offset: RxFrameOffset(FrameOffset(20)),
+            len: 3,
+        });
+        assert_eq!(frame.offset().0, 20);
+        assert_eq!(frame.len(), 3);
+
+        let mapped = umem.map_frame_mut(frame);
+        assert_eq!(&*mapped, &[7, 8, 9]);
+    }
+
+    #[test]
+    fn test_release_rounds_down_to_frame_start() {
+        let mut buffer = [0; 32];
+        let umem = SliceUmem::new(&mut buffer, 16).unwrap();
+        let frame_start = umem.reserve().unwrap().offset().0;
+
+        let frame = umem.received(ReceivedFrame {
+            offset: RxFrameOffset(FrameOffset(frame_start + 5)),
+            len: 3,
+        });
+        umem.release(frame);
+        assert_eq!(umem.available(), umem.capacity());
+
+        let other = umem.reserve().unwrap();
+        assert_eq!(umem.reserve().unwrap().offset().0, frame_start);
+        umem.release(other);
+    }
+
+    #[test]
+    fn test_release_completed_rounds_down_to_frame_start() {
+        let mut buffer = [0; 32];
+        let umem = SliceUmem::new(&mut buffer, 16).unwrap();
+        let frame_start = umem.reserve().unwrap().offset().0;
+
+        umem.release_completed(CompletedFrameOffset(FrameOffset(frame_start + 5)));
+        assert_eq!(umem.available(), umem.capacity());
+
+        let other = umem.reserve().unwrap();
+        assert_eq!(umem.reserve().unwrap().offset().0, frame_start);
+        umem.release(other);
     }
 }

@@ -2,11 +2,13 @@ use {
     crate::{
         netlink::MacAddress,
         route::Router,
+        socket::RingFull,
         umem::{CompletedFrameOffset, Frame, FrameOffset},
     },
     libc::{
-        AF_INET, IF_NAMESIZE, SIOCETHTOOL, SIOCGIFADDR, SIOCGIFHWADDR, SOCK_DGRAM, SYS_ioctl,
-        ifreq, mmap, munmap, socket, syscall, xdp_ring_offset,
+        AF_INET, IF_NAMESIZE, MSG_DONTWAIT, SIOCETHTOOL, SIOCGIFADDR, SIOCGIFHWADDR, SOCK_DGRAM,
+        SYS_ioctl, XDP_RING_NEED_WAKEUP, ifreq, mmap, munmap, recvfrom, socket, syscall,
+        xdp_ring_offset,
     },
     std::{
         ffi::{CStr, CString, c_char},
@@ -393,7 +395,7 @@ pub struct RxFillRing<F: Frame> {
     mmap: RingMmap<u64>,
     producer: RingProducer,
     size: u32,
-    _fd: RawFd,
+    fd: RawFd,
     _frame: PhantomData<F>,
 }
 
@@ -404,14 +406,39 @@ impl<F: Frame> RxFillRing<F> {
             producer: RingProducer::new(mmap.producer, mmap.consumer, size),
             mmap,
             size,
-            _fd: fd,
+            fd,
             _frame: PhantomData,
         }
     }
 
-    pub fn write(&mut self, frame: F) -> Result<(), io::Error> {
+    pub fn needs_wakeup(&self) -> bool {
+        unsafe { (*self.mmap.flags).load(Ordering::Relaxed) & XDP_RING_NEED_WAKEUP != 0 }
+    }
+
+    pub fn wake(&self) -> Result<u64, io::Error> {
+        let result = unsafe {
+            recvfrom(
+                self.fd,
+                ptr::null_mut(),
+                0,
+                MSG_DONTWAIT,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(result as u64)
+    }
+
+    pub fn available(&self) -> usize {
+        self.producer.available() as usize
+    }
+
+    pub fn write(&mut self, frame: F) -> Result<(), RingFull<F>> {
         let Some(index) = self.producer.produce() else {
-            return Err(ErrorKind::StorageFull.into());
+            return Err(RingFull(frame));
         };
         let index = index & self.size.saturating_sub(1);
         let desc = unsafe { self.mmap.desc.add(index as usize) };
