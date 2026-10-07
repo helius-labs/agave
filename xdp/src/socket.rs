@@ -4,7 +4,7 @@ use {
             DeviceQueue, RingConsumer, RingMmap, RingProducer, RxFillRing, TxCompletionRing,
             XdpDesc, mmap_ring,
         },
-        umem::{Frame, Umem},
+        umem::{Frame, FrameOffset, ReceivedFrame, RxFrameOffset, Umem},
     },
     libc::{
         AF_XDP, SOCK_RAW, SOL_XDP, XDP_COPY, XDP_MMAP_OFFSETS, XDP_PGOFF_RX_RING,
@@ -154,9 +154,13 @@ impl<U: Umem> Socket<U> {
                         }
                         .into());
                     };
-                    rx_fill_ring
-                        .write(frame)
-                        .map_err(|source| Error::syscall("RX fill ring write failed", source))?;
+                    rx_fill_ring.write(frame).map_err(|RingFull(frame)| {
+                        umem.release(frame);
+                        Error::syscall(
+                            "RX fill ring write failed",
+                            io::ErrorKind::StorageFull.into(),
+                        )
+                    })?;
                 }
                 rx_fill_ring.commit();
             }
@@ -369,7 +373,6 @@ impl<F: Frame> TxRing<F> {
 }
 
 pub struct RxRing {
-    #[allow(dead_code)]
     mmap: RingMmap<XdpDesc>,
     consumer: RingConsumer,
     size: u32,
@@ -394,6 +397,15 @@ impl RxRing {
 
     pub fn available(&self) -> usize {
         self.consumer.available() as usize
+    }
+
+    pub fn read(&mut self) -> Option<ReceivedFrame> {
+        let index = self.consumer.consume()? & self.size.saturating_sub(1);
+        let desc = unsafe { self.mmap.desc.add(index as usize).read() };
+        Some(ReceivedFrame {
+            offset: RxFrameOffset(FrameOffset(desc.addr as usize)),
+            len: desc.len as usize,
+        })
     }
 
     pub fn commit(&mut self) {
@@ -432,5 +444,106 @@ impl Error {
 impl From<Error> for io::Error {
     fn from(error: Error) -> io::Error {
         io::Error::other(error)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::arithmetic_side_effects)]
+mod tests {
+    use {
+        super::RxRing,
+        crate::device::{RingMmap, XdpDesc},
+        std::{
+            mem, ptr,
+            sync::atomic::{AtomicU32, Ordering},
+        },
+    };
+
+    const DESC_OFFSET: usize = 64;
+
+    // Anonymous mapping laid out like a kernel ring: producer @0, consumer @4, flags @8,
+    // descriptors @DESC_OFFSET. RingMmap's Drop unmaps it.
+    fn rx_ring(size: u32, start_index: u32) -> (RxRing, *mut AtomicU32, *mut XdpDesc) {
+        let len = DESC_OFFSET + size as usize * mem::size_of::<XdpDesc>();
+        // Safety: anonymous private mapping, checked against MAP_FAILED below.
+        let base = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        assert!(!ptr::eq(base, libc::MAP_FAILED));
+        // Safety: all offsets are within the `len` bytes mapped above.
+        let (producer, consumer, flags, desc) = unsafe {
+            (
+                base.cast::<AtomicU32>(),
+                base.add(4).cast::<AtomicU32>(),
+                base.add(8).cast::<AtomicU32>(),
+                base.add(DESC_OFFSET).cast::<XdpDesc>(),
+            )
+        };
+        // Safety: producer and consumer point into the live mapping.
+        unsafe {
+            (*producer).store(start_index, Ordering::Release);
+            (*consumer).store(start_index, Ordering::Release);
+        }
+        let mmap = RingMmap {
+            mmap: base as *const u8,
+            mmap_len: len,
+            producer,
+            consumer,
+            desc,
+            flags,
+        };
+        (RxRing::new(mmap, size, -1), producer, desc)
+    }
+
+    fn push(producer: *mut AtomicU32, desc: *mut XdpDesc, size: u32, addr: u64, len: u32) {
+        // Safety: producer and desc point into the ring's live mapping; the index is masked.
+        unsafe {
+            let index = (*producer).load(Ordering::Relaxed);
+            desc.add((index & (size - 1)) as usize).write(XdpDesc {
+                addr,
+                len,
+                options: 0,
+            });
+            (*producer).store(index.wrapping_add(1), Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn test_rx_ring_read() {
+        let (mut ring, producer, desc) = rx_ring(4, 0);
+        assert!(ring.read().is_none());
+
+        push(producer, desc, 4, 4096 + 256, 64);
+        push(producer, desc, 4, 8192 + 256, 1500);
+        assert!(ring.read().is_none());
+        ring.sync(false);
+
+        let first = ring.read().unwrap();
+        assert_eq!((first.offset.0.0, first.len), (4096 + 256, 64));
+        let second = ring.read().unwrap();
+        assert_eq!((second.offset.0.0, second.len), (8192 + 256, 1500));
+        assert!(ring.read().is_none());
+    }
+
+    #[test]
+    fn test_rx_ring_read_wrap_around() {
+        let (mut ring, producer, desc) = rx_ring(4, u32::MAX - 1);
+        for i in 0..3 {
+            push(producer, desc, 4, i * 4096, i as u32 + 1);
+        }
+        ring.sync(false);
+
+        for i in 0..3 {
+            let frame = ring.read().unwrap();
+            assert_eq!((frame.offset.0.0, frame.len), (i * 4096, i + 1));
+        }
+        assert!(ring.read().is_none());
     }
 }
