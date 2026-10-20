@@ -8252,7 +8252,7 @@ pub mod tests {
                 ],
             )
             .unwrap(),
-            owner
+            Some(owner)
         );
 
         // Filtering on token-2022 account type
@@ -8265,7 +8265,7 @@ pub mod tests {
                 ],
             )
             .unwrap(),
-            owner
+            Some(owner)
         );
 
         // Filtering on token account state
@@ -8278,7 +8278,7 @@ pub mod tests {
                 ],
             )
             .unwrap(),
-            owner
+            Some(owner)
         );
 
         // Can't filter on account type for token-v3
@@ -8289,6 +8289,7 @@ pub mod tests {
                 RpcFilterType::Memcmp(Memcmp::new_raw_bytes(165, vec![ACCOUNTTYPE_ACCOUNT])),
             ],
         )
+        .unwrap()
         .is_none());
 
         // Filtering on mint instead of owner
@@ -8299,6 +8300,7 @@ pub mod tests {
                 RpcFilterType::DataSize(165)
             ],
         )
+        .unwrap()
         .is_none());
 
         // Wrong program id
@@ -8309,6 +8311,7 @@ pub mod tests {
                 RpcFilterType::DataSize(165)
             ],
         )
+        .unwrap()
         .is_none());
         assert!(get_spl_token_owner_filter(
             &Pubkey::new_unique(),
@@ -8317,6 +8320,7 @@ pub mod tests {
                 RpcFilterType::Memcmp(Memcmp::new_raw_bytes(165, vec![ACCOUNTTYPE_ACCOUNT])),
             ],
         )
+        .unwrap()
         .is_none());
     }
 
@@ -8333,7 +8337,7 @@ pub mod tests {
                 ],
             )
             .unwrap(),
-            mint
+            Some(mint)
         );
 
         // Filtering on token-2022 account type
@@ -8346,7 +8350,7 @@ pub mod tests {
                 ],
             )
             .unwrap(),
-            mint
+            Some(mint)
         );
 
         // Filtering on token account state
@@ -8359,7 +8363,7 @@ pub mod tests {
                 ],
             )
             .unwrap(),
-            mint
+            Some(mint)
         );
 
         // Can't filter on account type for token-v3
@@ -8370,6 +8374,7 @@ pub mod tests {
                 RpcFilterType::Memcmp(Memcmp::new_raw_bytes(165, vec![ACCOUNTTYPE_ACCOUNT])),
             ],
         )
+        .unwrap()
         .is_none());
 
         // Filtering on owner instead of mint
@@ -8380,6 +8385,7 @@ pub mod tests {
                 RpcFilterType::DataSize(165)
             ],
         )
+        .unwrap()
         .is_none());
 
         // Wrong program id
@@ -8390,6 +8396,7 @@ pub mod tests {
                 RpcFilterType::DataSize(165)
             ],
         )
+        .unwrap()
         .is_none());
         assert!(get_spl_token_mint_filter(
             &Pubkey::new_unique(),
@@ -8398,6 +8405,7 @@ pub mod tests {
                 RpcFilterType::Memcmp(Memcmp::new_raw_bytes(165, vec![ACCOUNTTYPE_ACCOUNT])),
             ],
         )
+        .unwrap()
         .is_none());
     }
 
