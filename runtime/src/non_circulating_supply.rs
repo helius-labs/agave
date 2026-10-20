@@ -3,7 +3,7 @@ use {
     log::*,
     solana_accounts_db::accounts_index::{AccountIndex, IndexKey, ScanConfig, ScanResult},
     solana_sdk::{
-        account::ReadableAccount,
+        account::{AccountSharedData, ReadableAccount},
         pubkey::Pubkey,
         stake::{self, state::StakeStateV2},
     },
@@ -27,12 +27,25 @@ pub fn calculate_non_circulating_supply(bank: &Bank) -> ScanResult<NonCirculatin
 
     let clock = bank.clock();
     let config = &ScanConfig::default();
+    let is_non_circulating = |account: &AccountSharedData| {
+        if account.owner() != &stake::program::id() {
+            return false;
+        }
+        match stake_state::from(account).unwrap_or_default() {
+            StakeStateV2::Initialized(meta) | StakeStateV2::Stake(meta, _, _) => {
+                meta.lockup.is_in_force(&clock, None)
+                    || withdraw_authority_list.contains(&meta.authorized.withdrawer)
+            }
+            _ => false,
+        }
+    };
     let stake_accounts = if bank
         .rc
         .accounts
         .accounts_db
         .account_indexes
         .contains(&AccountIndex::ProgramId)
+        && bank.account_indexes_include_key(&stake::program::id())
     {
         bank.get_filtered_indexed_accounts(
             &IndexKey::ProgramId(stake::program::id()),
@@ -40,39 +53,24 @@ pub fn calculate_non_circulating_supply(bank: &Bank) -> ScanResult<NonCirculatin
             // the current AccountsDb implementation, an account may remain in storage as a
             // zero-lamport Account::Default() after being wiped and reinitialized in later
             // updates. We include the redundant filter here to avoid returning these accounts.
-            |account| account.owner() == &stake::program::id(),
+            is_non_circulating,
             config,
             None,
         )?
     } else {
-        bank.get_program_accounts(&stake::program::id(), config)?
+        bank.get_filtered_program_accounts(&stake::program::id(), is_non_circulating, config)?
     };
 
-    for (pubkey, account) in stake_accounts.iter() {
-        let stake_account = stake_state::from(account).unwrap_or_default();
-        match stake_account {
-            StakeStateV2::Initialized(meta) => {
-                if meta.lockup.is_in_force(&clock, None)
-                    || withdraw_authority_list.contains(&meta.authorized.withdrawer)
-                {
-                    non_circulating_accounts_set.insert(*pubkey);
-                }
-            }
-            StakeStateV2::Stake(meta, _stake, _stake_flags) => {
-                if meta.lockup.is_in_force(&clock, None)
-                    || withdraw_authority_list.contains(&meta.authorized.withdrawer)
-                {
-                    non_circulating_accounts_set.insert(*pubkey);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let lamports = non_circulating_accounts_set
+    let mut lamports: u64 = non_circulating_accounts_set
         .iter()
         .map(|pubkey| bank.get_balance(pubkey))
         .sum();
+    for (pubkey, account) in stake_accounts {
+        // Fixed non-circulating addresses may also be stake accounts. Count them only once.
+        if non_circulating_accounts_set.insert(pubkey) {
+            lamports += account.lamports();
+        }
+    }
 
     Ok(NonCirculatingSupply {
         lamports,
@@ -232,6 +230,120 @@ mod tests {
         let slot = parent.slot() + 1;
         let collector_id = Pubkey::default();
         Bank::new_from_parent(parent, &collector_id, slot)
+    }
+
+    #[test]
+    fn test_supply_scan_filters_and_index_exclusions() {
+        use {
+            crate::bank::BankTestConfig,
+            solana_accounts_db::{
+                accounts_db::{AccountsDbConfig, ACCOUNTS_DB_CONFIG_FOR_TESTING},
+                accounts_index::{AccountSecondaryIndexes, AccountSecondaryIndexesIncludeExclude},
+            },
+        };
+
+        // Exercise full scans, indexed scans, and an index excluding the stake program.
+        for index_mode in 0..3 {
+            let mut indexes = AccountSecondaryIndexes::default();
+            if index_mode != 0 {
+                indexes.indexes.insert(AccountIndex::ProgramId);
+            }
+            if index_mode == 2 {
+                indexes.keys = Some(AccountSecondaryIndexesIncludeExclude {
+                    exclude: true,
+                    keys: HashSet::from([stake::program::id()]),
+                });
+            }
+            let locked = |balance| {
+                Account::new_data_with_space(
+                    balance,
+                    &StakeStateV2::Initialized(Meta {
+                        lockup: Lockup {
+                            epoch: 1,
+                            ..Lockup::default()
+                        },
+                        ..Meta::default()
+                    }),
+                    StakeStateV2::size_of(),
+                    &stake::program::id(),
+                )
+                .unwrap()
+            };
+            let fixed = non_circulating_accounts()[0];
+            let dynamic = Pubkey::new_unique();
+            let delegated = Pubkey::new_unique();
+            let authority_controlled = Pubkey::new_unique();
+            let unlocked = Pubkey::new_unique();
+            let malformed = Pubkey::new_unique();
+            let genesis_config = GenesisConfig {
+                accounts: BTreeMap::from([
+                    (fixed, locked(10)),
+                    (dynamic, locked(20)),
+                    (
+                        delegated,
+                        Account::new_data_with_space(
+                            40,
+                            &StakeStateV2::Stake(
+                                Meta {
+                                    lockup: Lockup {
+                                        epoch: 1,
+                                        ..Lockup::default()
+                                    },
+                                    ..Meta::default()
+                                },
+                                solana_sdk::stake::state::Stake::default(),
+                                solana_sdk::stake::stake_flags::StakeFlags::empty(),
+                            ),
+                            StakeStateV2::size_of(),
+                            &stake::program::id(),
+                        )
+                        .unwrap(),
+                    ),
+                    (
+                        authority_controlled,
+                        Account::new_data_with_space(
+                            50,
+                            &StakeStateV2::Initialized(Meta {
+                                authorized: Authorized::auto(&withdraw_authority()[0]),
+                                ..Meta::default()
+                            }),
+                            StakeStateV2::size_of(),
+                            &stake::program::id(),
+                        )
+                        .unwrap(),
+                    ),
+                    (
+                        unlocked,
+                        Account::new_data_with_space(
+                            30,
+                            &StakeStateV2::Initialized(Meta::default()),
+                            StakeStateV2::size_of(),
+                            &stake::program::id(),
+                        )
+                        .unwrap(),
+                    ),
+                    (malformed, Account::new(40, 0, &stake::program::id())),
+                ]),
+                ..GenesisConfig::default()
+            };
+            let bank = Bank::new_with_config_for_tests(
+                &genesis_config,
+                BankTestConfig {
+                    accounts_db_config: AccountsDbConfig {
+                        account_indexes: Some(indexes),
+                        ..ACCOUNTS_DB_CONFIG_FOR_TESTING
+                    },
+                },
+            );
+            let supply = calculate_non_circulating_supply(&bank).unwrap();
+            assert_eq!(supply.lamports, 120, "index mode {index_mode}");
+            assert_eq!(supply.accounts.len(), non_circulating_accounts().len() + 3);
+            assert!(supply.accounts.contains(&dynamic));
+            assert!(supply.accounts.contains(&delegated));
+            assert!(supply.accounts.contains(&authority_controlled));
+            assert!(!supply.accounts.contains(&unlocked));
+            assert!(!supply.accounts.contains(&malformed));
+        }
     }
 
     #[test]

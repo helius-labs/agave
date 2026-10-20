@@ -1,9 +1,12 @@
 //! The `rpc` module implements the Solana RPC interface.
 use {
     crate::{
-        filter::filter_allows, max_slots::MaxSlots,
+        filter::filter_allows,
+        max_slots::MaxSlots,
         optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
-        parsed_token_accounts::*, rpc_cache::LargestAccountsCache, rpc_health::*,
+        parsed_token_accounts::*,
+        rpc_cache::{LargestAccountsCache, SupplyCache},
+        rpc_health::*,
     },
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::{config::Options, serialize},
@@ -55,7 +58,7 @@ use {
         bank_forks::BankForks,
         commitment::{BlockCommitmentArray, BlockCommitmentCache},
         installed_scheduler_pool::BankWithScheduler,
-        non_circulating_supply::calculate_non_circulating_supply,
+        non_circulating_supply::{calculate_non_circulating_supply, NonCirculatingSupply},
         prioritization_fee_cache::PrioritizationFeeCache,
         snapshot_config::SnapshotConfig,
         snapshot_utils,
@@ -217,6 +220,7 @@ pub struct JsonRpcRequestProcessor {
     bigtable_ledger_storage: Option<solana_storage_bigtable::LedgerStorage>,
     optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
     largest_accounts_cache: Arc<RwLock<LargestAccountsCache>>,
+    supply_cache: Arc<SupplyCache>,
     max_slots: Arc<MaxSlots>,
     leader_schedule_cache: Arc<LeaderScheduleCache>,
     max_complete_transaction_status_slot: Arc<AtomicU64>,
@@ -345,6 +349,7 @@ impl JsonRpcRequestProcessor {
                 bigtable_ledger_storage,
                 optimistically_confirmed_bank,
                 largest_accounts_cache,
+                supply_cache: Arc::new(SupplyCache::default()),
                 max_slots,
                 leader_schedule_cache,
                 max_complete_transaction_status_slot,
@@ -419,6 +424,7 @@ impl JsonRpcRequestProcessor {
             bigtable_ledger_storage: None,
             optimistically_confirmed_bank,
             largest_accounts_cache: Arc::new(RwLock::new(LargestAccountsCache::new(30))),
+            supply_cache: Arc::new(SupplyCache::default()),
             max_slots: Arc::new(MaxSlots::default()),
             leader_schedule_cache,
             max_complete_transaction_status_slot: Arc::new(AtomicU64::default()),
@@ -936,12 +942,12 @@ impl JsonRpcRequestProcessor {
         } else {
             let (addresses, address_filter) = if let Some(filter) = config.clone().filter {
                 let non_circulating_supply =
-                    calculate_non_circulating_supply(&bank).map_err(|e| {
+                    self.get_non_circulating_supply(&bank).map_err(|e| {
                         RpcCustomError::ScanError {
                             message: e.to_string(),
                         }
                     })?;
-                let addresses = non_circulating_supply.accounts.into_iter().collect();
+                let addresses = non_circulating_supply.accounts.iter().copied().collect();
                 let address_filter = match filter {
                     RpcLargestAccountsFilter::Circulating => AccountAddressFilter::Exclude,
                     RpcLargestAccountsFilter::NonCirculating => AccountAddressFilter::Include,
@@ -972,6 +978,19 @@ impl JsonRpcRequestProcessor {
         }
     }
 
+    fn get_non_circulating_supply(
+        &self,
+        bank: &Bank,
+    ) -> solana_accounts_db::accounts_index::ScanResult<Arc<NonCirculatingSupply>> {
+        if bank.is_frozen() {
+            self.supply_cache
+                .get_or_calculate(bank.bank_id(), || calculate_non_circulating_supply(bank))
+        } else {
+            // A processed bank can still change within the same slot.
+            calculate_non_circulating_supply(bank).map(Arc::new)
+        }
+    }
+
     fn get_supply(
         &self,
         config: Option<RpcSupplyConfig>,
@@ -979,9 +998,10 @@ impl JsonRpcRequestProcessor {
         let config = config.unwrap_or_default();
         let bank = self.bank(config.commitment);
         let non_circulating_supply =
-            calculate_non_circulating_supply(&bank).map_err(|e| RpcCustomError::ScanError {
-                message: e.to_string(),
-            })?;
+            self.get_non_circulating_supply(&bank)
+                .map_err(|e| RpcCustomError::ScanError {
+                    message: e.to_string(),
+                })?;
         let total_supply = bank.capitalization();
         let non_circulating_accounts = if config.exclude_non_circulating_accounts_list {
             vec![]
@@ -4994,6 +5014,25 @@ pub mod tests {
         let request = create_test_request("minimumLedgerSlot", None);
         let result: Slot = parse_success_result(rpc.handle_request_sync(request));
         assert_eq!(0, result);
+    }
+
+    #[test]
+    fn test_supply_cache_bypasses_mutable_banks() {
+        let rpc = RpcHandler::start();
+        let bank = rpc.working_bank();
+        assert!(!bank.is_frozen());
+        let first = rpc.meta.get_non_circulating_supply(&bank).unwrap();
+        let address = non_circulating_accounts()[0];
+        bank.store_account(
+            &address,
+            &AccountSharedData::new(123, 0, &Pubkey::default()),
+        );
+        let second = rpc.meta.get_non_circulating_supply(&bank).unwrap();
+        assert_eq!(second.lamports, first.lamports + 123);
+        bank.freeze();
+        let frozen = rpc.meta.get_non_circulating_supply(&bank).unwrap();
+        let cached = rpc.meta.get_non_circulating_supply(&bank).unwrap();
+        assert!(Arc::ptr_eq(&frozen, &cached));
     }
 
     #[test]
