@@ -26,6 +26,12 @@ impl AccountSecondaryIndexes {
     pub fn contains(&self, index: &AccountIndex) -> bool {
         self.indexes.contains(index)
     }
+    /// The internal stake index is independent of user-selected SPL/program index keys.
+    pub fn include_program_id(&self, key: &Pubkey) -> bool {
+        (self.contains(&AccountIndex::ProgramId) && self.include_key(key))
+            || (self.contains(&AccountIndex::StakeProgram) && key == &solana_sdk_ids::stake::id())
+    }
+
     pub fn include_key(&self, key: &Pubkey) -> bool {
         match &self.keys {
             Some(options) => options.exclude ^ options.keys.contains(key),
@@ -42,6 +48,8 @@ pub struct AccountSecondaryIndexesIncludeExclude {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AccountIndex {
+    /// Internal, stake-only owner index used by full RPC nodes for supply queries.
+    StakeProgram,
     ProgramId,
     SplTokenMint,
     SplTokenOwner,
@@ -452,5 +460,33 @@ mod tests {
         assert_eq!(outer_keys.len(), 2);
         assert!(outer_keys.contains(&outer_key_1));
         assert!(outer_keys.contains(&outer_key_2));
+    }
+}
+
+#[cfg(test)]
+mod stake_program_index_tests {
+    use super::*;
+
+    #[test]
+    fn test_internal_stake_program_index_is_selective_and_independent() {
+        let stake = solana_sdk_ids::stake::id();
+        let other = Pubkey::new_unique();
+        let mut indexes = AccountSecondaryIndexes::default();
+        indexes.indexes.insert(AccountIndex::StakeProgram);
+        assert!(indexes.include_program_id(&stake));
+        assert!(!indexes.include_program_id(&other));
+        assert!(!indexes.contains(&AccountIndex::ProgramId));
+        indexes.keys = Some(AccountSecondaryIndexesIncludeExclude {
+            exclude: true,
+            keys: HashSet::from([stake]),
+        });
+        assert!(!indexes.include_key(&stake));
+        assert!(indexes.include_program_id(&stake));
+        assert!(!indexes.include_program_id(&other));
+        indexes.indexes.insert(AccountIndex::ProgramId);
+        assert!(indexes.include_program_id(&other));
+        indexes.indexes.remove(&AccountIndex::StakeProgram);
+        assert!(!indexes.include_program_id(&stake));
+        assert!(indexes.include_program_id(&other));
     }
 }

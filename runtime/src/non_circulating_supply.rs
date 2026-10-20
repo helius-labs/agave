@@ -2,10 +2,7 @@ use {
     crate::bank::Bank,
     log::*,
     solana_account::{ReadableAccount, state_traits::StateMutWincode as _},
-    solana_accounts_db::{
-        accounts_index::{AccountIndex, IndexKey},
-        accounts_scan::ScanResult,
-    },
+    solana_accounts_db::{accounts_index::IndexKey, accounts_scan::ScanResult},
     solana_pubkey::Pubkey,
     solana_stake_interface::{self as stake, state::StakeStateV2},
     std::collections::HashSet,
@@ -31,7 +28,7 @@ pub fn calculate_non_circulating_supply(bank: &Bank) -> ScanResult<NonCirculatin
         .accounts
         .accounts_db
         .account_indexes
-        .contains(&AccountIndex::ProgramId)
+        .include_program_id(&stake::program::id())
     {
         bank.get_filtered_indexed_accounts(
             &IndexKey::ProgramId(stake::program::id()),
@@ -447,6 +444,15 @@ mod tests {
 
     #[test]
     fn test_calculate_non_circulating_supply() {
+        check_non_circulating_supply(false);
+    }
+
+    #[test]
+    fn test_supply_stake_program_index() {
+        check_non_circulating_supply(true);
+    }
+
+    fn check_non_circulating_supply(stake_index: bool) {
         let mut accounts: BTreeMap<Pubkey, Account> = BTreeMap::new();
         let balance = 10;
         let num_genesis_accounts = 10;
@@ -490,8 +496,23 @@ mod tests {
             cluster_type: ClusterType::MainnetBeta,
             ..GenesisConfig::default()
         };
+        use solana_accounts_db::{
+            accounts_db::{ACCOUNTS_DB_CONFIG_FOR_TESTING, AccountsDbConfig},
+            accounts_index::{AccountIndex, AccountSecondaryIndexes},
+        };
+        let mut account_indexes = AccountSecondaryIndexes::default();
+        if stake_index {
+            account_indexes.indexes.insert(AccountIndex::StakeProgram);
+        }
+        let config = crate::bank::BankTestConfig {
+            accounts_db_config: AccountsDbConfig {
+                account_indexes: Some(account_indexes),
+                ..ACCOUNTS_DB_CONFIG_FOR_TESTING
+            },
+        };
         let (bank0, bank_forks) =
-            Bank::new_for_tests(&genesis_config).wrap_with_bank_forks_for_tests();
+            Bank::new_with_paths_for_tests(&genesis_config, Some(config), vec![], None)
+                .wrap_with_bank_forks_for_tests();
         let mut bank = bank0;
         assert_eq!(
             bank.capitalization(),

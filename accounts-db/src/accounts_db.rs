@@ -3346,7 +3346,13 @@ impl AccountsDb {
             IndexKey::SplTokenMint(key) => key,
             IndexKey::SplTokenOwner(key) => key,
         };
-        if !self.account_indexes.include_key(key) {
+        let included = match index_key {
+            IndexKey::ProgramId(_) => self.account_indexes.include_program_id(key),
+            IndexKey::SplTokenMint(_) | IndexKey::SplTokenOwner(_) => {
+                self.account_indexes.include_key(key)
+            }
+        };
+        if !included {
             // the requested key was not indexed in the secondary index, so do a normal scan
             let used_index = false;
             self.scan_accounts(ancestors, bank_id, scan_func, config)?;

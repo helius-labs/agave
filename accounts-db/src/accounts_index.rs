@@ -586,7 +586,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
 
     pub fn get_index_key_size(&self, index: &AccountIndex, index_key: &Pubkey) -> Option<usize> {
         match index {
-            AccountIndex::ProgramId => self.program_id_index.index.get(index_key).map(|x| x.len()),
+            AccountIndex::ProgramId | AccountIndex::StakeProgram => {
+                self.program_id_index.index.get(index_key).map(|x| x.len())
+            }
             AccountIndex::SplTokenOwner => self
                 .spl_token_owner_index
                 .index
@@ -629,9 +631,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         let account_owner = account.owner();
         let account_data = account.data();
 
-        if account_indexes.contains(&AccountIndex::ProgramId)
-            && account_indexes.include_key(account_owner)
-        {
+        if account_indexes.include_program_id(account_owner) {
             self.program_id_index.insert(account_owner, pubkey);
         }
         // Note because of the below check below on the account data length, when an
@@ -872,7 +872,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         account_indexes: &AccountSecondaryIndexes,
         should_remove: impl Fn() -> bool,
     ) {
-        if account_indexes.contains(&AccountIndex::ProgramId) {
+        if account_indexes.contains(&AccountIndex::ProgramId)
+            || account_indexes.contains(&AccountIndex::StakeProgram)
+        {
             self.program_id_index
                 .remove_by_inner_key_if(inner_key, &should_remove);
         }
@@ -2653,5 +2655,52 @@ mod tests {
         let index = AccountsIndex::<bool, bool>::default_for_tests();
 
         assert_eq!(index.handle_dead_keys(&[key]), vec![key]);
+    }
+}
+
+#[cfg(test)]
+mod stake_program_index_tests {
+    use {super::*, solana_account::AccountSharedData, std::collections::HashSet};
+
+    #[test]
+    fn test_stake_program_index_updates_and_purges() {
+        let stake = solana_sdk_ids::stake::id();
+        let other_owner = Pubkey::new_unique();
+        let stake_key = Pubkey::new_unique();
+        let other_key = Pubkey::new_unique();
+        let indexes = AccountSecondaryIndexes {
+            indexes: HashSet::from([AccountIndex::StakeProgram]),
+            keys: Some(AccountSecondaryIndexesIncludeExclude {
+                exclude: true,
+                keys: HashSet::from([stake]),
+            }),
+        };
+        let index = AccountsIndex::<bool, bool>::default_for_tests();
+        index.update_secondary_indexes(&stake_key, &AccountSharedData::new(1, 0, &stake), &indexes);
+        index.update_secondary_indexes(
+            &other_key,
+            &AccountSharedData::new(1, 0, &other_owner),
+            &indexes,
+        );
+        assert_eq!(
+            index.get_index_key_pubkeys(&IndexKey::ProgramId(stake)),
+            vec![stake_key]
+        );
+        assert!(
+            index
+                .get_index_key_pubkeys(&IndexKey::ProgramId(other_owner))
+                .is_empty()
+        );
+        index.purge_secondary_indexes_by_inner_key_if(&stake_key, &indexes, || false);
+        assert_eq!(
+            index.get_index_key_pubkeys(&IndexKey::ProgramId(stake)),
+            vec![stake_key]
+        );
+        index.purge_secondary_indexes_by_inner_key_if(&stake_key, &indexes, || true);
+        assert!(
+            index
+                .get_index_key_pubkeys(&IndexKey::ProgramId(stake))
+                .is_empty()
+        );
     }
 }
