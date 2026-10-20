@@ -26,10 +26,8 @@ impl AccountSecondaryIndexes {
     pub fn contains(&self, index: &AccountIndex) -> bool {
         self.indexes.contains(index)
     }
-    /// The internal stake index is independent of user-selected SPL/program index keys.
     pub fn include_program_id(&self, key: &Pubkey) -> bool {
-        (self.contains(&AccountIndex::ProgramId) && self.include_key(key))
-            || (self.contains(&AccountIndex::StakeProgram) && key == &solana_sdk_ids::stake::id())
+        self.contains(&AccountIndex::ProgramId) && self.include_key(key)
     }
 
     pub fn include_key(&self, key: &Pubkey) -> bool {
@@ -48,8 +46,8 @@ pub struct AccountSecondaryIndexesIncludeExclude {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AccountIndex {
-    /// Internal, stake-only owner index used by full RPC nodes for supply queries.
-    StakeProgram,
+    /// Internal, conservative stake candidates for full RPC supply queries.
+    NonCirculatingStake,
     ProgramId,
     SplTokenMint,
     SplTokenOwner,
@@ -57,6 +55,7 @@ pub enum AccountIndex {
 
 #[derive(Debug, Clone, Copy)]
 pub enum IndexKey {
+    NonCirculatingStake,
     ProgramId(Pubkey),
     SplTokenMint(Pubkey),
     SplTokenOwner(Pubkey),
@@ -464,29 +463,23 @@ mod tests {
 }
 
 #[cfg(test)]
-mod stake_program_index_tests {
+mod non_circulating_stake_index_tests {
     use super::*;
-
     #[test]
-    fn test_internal_stake_program_index_is_selective_and_independent() {
+    fn test_supply_index_does_not_change_user_index_selection() {
         let stake = solana_sdk_ids::stake::id();
         let other = Pubkey::new_unique();
         let mut indexes = AccountSecondaryIndexes::default();
-        indexes.indexes.insert(AccountIndex::StakeProgram);
-        assert!(indexes.include_program_id(&stake));
+        indexes.indexes.insert(AccountIndex::NonCirculatingStake);
+        assert!(!indexes.include_program_id(&stake));
         assert!(!indexes.include_program_id(&other));
-        assert!(!indexes.contains(&AccountIndex::ProgramId));
         indexes.keys = Some(AccountSecondaryIndexesIncludeExclude {
             exclude: true,
             keys: HashSet::from([stake]),
         });
-        assert!(!indexes.include_key(&stake));
-        assert!(indexes.include_program_id(&stake));
-        assert!(!indexes.include_program_id(&other));
         indexes.indexes.insert(AccountIndex::ProgramId);
-        assert!(indexes.include_program_id(&other));
-        indexes.indexes.remove(&AccountIndex::StakeProgram);
         assert!(!indexes.include_program_id(&stake));
         assert!(indexes.include_program_id(&other));
+        assert!(indexes.contains(&AccountIndex::NonCirculatingStake));
     }
 }

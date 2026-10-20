@@ -26,7 +26,6 @@ dev-context-only-utils = [
     "dep:solana-keypair",
     "dep:solana-rent",
     "dep:solana-signer",
-    "dep:solana-stake-interface",
     "dep:solana-vote-program",
     "solana-account/wincode",
     "solana-transaction/dev-context-only-utils",
@@ -86,7 +85,7 @@ solana-reward-info = { workspace = true, features = ["serde"] }
 solana-sdk-ids = { workspace = true }
 solana-signer = { workspace = true, optional = true }
 solana-slot-hashes = { workspace = true }
-solana-stake-interface = { workspace = true, optional = true, features = [
+solana-stake-interface = { workspace = true, features = [
     "serde",
     "wincode",
 ] }

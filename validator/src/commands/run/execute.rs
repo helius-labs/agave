@@ -547,9 +547,11 @@ pub fn execute(
 
     let mut account_indexes = AccountSecondaryIndexes::from_clap_arg_match(matches)?;
     if matches.is_present("rpc_port") && matches.is_present("full_rpc_api") {
-        // Supply needs initialized as well as delegated stake accounts. Track their owner
-        // keys at startup and on updates instead of scanning every mainnet account per call.
-        account_indexes.indexes.insert(AccountIndex::StakeProgram);
+        // Track initialized and delegated stakes with a lockup or tracked withdraw authority.
+        // The querying bank still checks its own clock, owner, state, and balances.
+        account_indexes
+            .indexes
+            .insert(AccountIndex::NonCirculatingStake);
     }
 
     let restricted_repair_only_mode = matches.is_present("restricted_repair_only_mode");
