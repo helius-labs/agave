@@ -198,6 +198,7 @@ pub struct AccountsIndex<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> {
     pub account_maps: Box<[Arc<InMemAccountsIndex<T, U>>]>,
     pub bin_calculator: PubkeyBinCalculator,
     program_id_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
+    non_circulating_stake_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
     spl_token_mint_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
     spl_token_owner_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
 
@@ -220,6 +221,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             bin_calculator,
             program_id_index: SecondaryIndex::<RwLockSecondaryIndexEntry>::new(
                 "program_id_index_stats",
+            ),
+            non_circulating_stake_index: SecondaryIndex::<RwLockSecondaryIndexEntry>::new(
+                "non_circulating_stake_index_stats",
             ),
             spl_token_mint_index: SecondaryIndex::<RwLockSecondaryIndexEntry>::new(
                 "spl_token_mint_index_stats",
@@ -381,6 +385,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     /// Returns the list of pubkeys from the secondary index for the given key.
     pub(crate) fn get_index_key_pubkeys(&self, index_key: &IndexKey) -> Vec<Pubkey> {
         match index_key {
+            IndexKey::NonCirculatingStake => self
+                .non_circulating_stake_index
+                .get(&solana_sdk_ids::stake::id()),
             IndexKey::ProgramId(key) => self.program_id_index.get(key),
             IndexKey::SplTokenMint(key) => self.spl_token_mint_index.get(key),
             IndexKey::SplTokenOwner(key) => self.spl_token_owner_index.get(key),
@@ -586,6 +593,11 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
 
     pub fn get_index_key_size(&self, index: &AccountIndex, index_key: &Pubkey) -> Option<usize> {
         match index {
+            AccountIndex::NonCirculatingStake => self
+                .non_circulating_stake_index
+                .index
+                .get(&solana_sdk_ids::stake::id())
+                .map(|x| x.len()),
             AccountIndex::ProgramId => self.program_id_index.index.get(index_key).map(|x| x.len()),
             AccountIndex::SplTokenOwner => self
                 .spl_token_owner_index
@@ -602,6 +614,10 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
 
     /// log any secondary index counts, if non-zero
     pub(crate) fn log_secondary_indexes(&self) {
+        if !self.non_circulating_stake_index.index.is_empty() {
+            info!("secondary index: {:?}", AccountIndex::NonCirculatingStake);
+            self.non_circulating_stake_index.log_contents();
+        }
         if !self.program_id_index.index.is_empty() {
             info!("secondary index: {:?}", AccountIndex::ProgramId);
             self.program_id_index.log_contents();
@@ -629,10 +645,19 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         let account_owner = account.owner();
         let account_data = account.data();
 
-        if account_indexes.contains(&AccountIndex::ProgramId)
-            && account_indexes.include_key(account_owner)
+        if account_indexes.contains(&AccountIndex::NonCirculatingStake)
+            && crate::non_circulating_stake::is_candidate(account)
         {
+            self.non_circulating_stake_index
+                .insert(&solana_sdk_ids::stake::id(), pubkey);
+        }
+        if account_indexes.include_program_id(account_owner) {
             self.program_id_index.insert(account_owner, pubkey);
+        }
+        if !account_indexes.contains(&AccountIndex::SplTokenOwner)
+            && !account_indexes.contains(&AccountIndex::SplTokenMint)
+        {
+            return;
         }
         // Note because of the below check below on the account data length, when an
         // account hits zero lamports and is reset to AccountSharedData::Default, then we skip
@@ -872,6 +897,10 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         account_indexes: &AccountSecondaryIndexes,
         should_remove: impl Fn() -> bool,
     ) {
+        if account_indexes.contains(&AccountIndex::NonCirculatingStake) {
+            self.non_circulating_stake_index
+                .remove_by_inner_key_if(inner_key, &should_remove);
+        }
         if account_indexes.contains(&AccountIndex::ProgramId) {
             self.program_id_index
                 .remove_by_inner_key_if(inner_key, &should_remove);
@@ -2653,5 +2682,77 @@ mod tests {
         let index = AccountsIndex::<bool, bool>::default_for_tests();
 
         assert_eq!(index.handle_dead_keys(&[key]), vec![key]);
+    }
+}
+
+#[cfg(test)]
+mod non_circulating_stake_index_tests {
+    use {
+        super::*,
+        solana_account::{Account, AccountSharedData},
+        solana_stake_interface::state::{Lockup, Meta, StakeStateV2},
+        std::collections::HashSet,
+    };
+    #[test]
+    fn test_supply_candidates_update_retain_history_and_purge() {
+        let stake = solana_sdk_ids::stake::id();
+        let key = Pubkey::new_unique();
+        let other = Pubkey::new_unique();
+        let indexes = AccountSecondaryIndexes {
+            indexes: HashSet::from([AccountIndex::NonCirculatingStake]),
+            keys: Some(AccountSecondaryIndexesIncludeExclude {
+                exclude: true,
+                keys: HashSet::from([stake]),
+            }),
+        };
+        let account = |meta| Account {
+            lamports: 1,
+            owner: stake,
+            data: wincode::serialize(&StakeStateV2::Initialized(meta)).unwrap(),
+            ..Account::default()
+        };
+        let index = AccountsIndex::<bool, bool>::default_for_tests();
+        index.update_secondary_indexes(
+            &key,
+            &account(Meta {
+                lockup: Lockup {
+                    epoch: 1,
+                    ..Lockup::default()
+                },
+                ..Meta::default()
+            }),
+            &indexes,
+        );
+        index.update_secondary_indexes(&other, &account(Meta::default()), &indexes);
+        assert_eq!(
+            index.get_index_key_pubkeys(&IndexKey::NonCirculatingStake),
+            vec![key]
+        );
+        assert!(
+            index
+                .get_index_key_pubkeys(&IndexKey::ProgramId(stake))
+                .is_empty()
+        );
+        index.update_secondary_indexes(&key, &account(Meta::default()), &indexes);
+        assert_eq!(
+            index.get_index_key_pubkeys(&IndexKey::NonCirculatingStake),
+            vec![key]
+        );
+        index.update_secondary_indexes(
+            &other,
+            &AccountSharedData::new(1, 0, &Pubkey::default()),
+            &indexes,
+        );
+        index.purge_secondary_indexes_by_inner_key_if(&key, &indexes, || false);
+        assert_eq!(
+            index.get_index_key_pubkeys(&IndexKey::NonCirculatingStake),
+            vec![key]
+        );
+        index.purge_secondary_indexes_by_inner_key_if(&key, &indexes, || true);
+        assert!(
+            index
+                .get_index_key_pubkeys(&IndexKey::NonCirculatingStake)
+                .is_empty()
+        );
     }
 }

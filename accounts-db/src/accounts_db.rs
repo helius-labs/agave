@@ -46,7 +46,7 @@ use {
         accounts_file::AccountsFileProvider,
         accounts_hash::{AccountLtHash, AccountsLtHash, ZERO_LAMPORT_ACCOUNT_LT_HASH},
         accounts_index::{
-            AccountSecondaryIndexes, AccountsIndex, IndexKey, ReclaimsSlotList,
+            AccountIndex, AccountSecondaryIndexes, AccountsIndex, IndexKey, ReclaimsSlotList,
             ReclaimsWithNewestSlot, RefCount, ScanFilter, SlotList, Startup, UpsertReclaim,
             in_mem_accounts_index::StartupStats,
         },
@@ -3342,11 +3342,21 @@ impl AccountsDb {
         F: FnMut(Option<(&Pubkey, AccountSharedData, Slot)>),
     {
         let key = match &index_key {
+            IndexKey::NonCirculatingStake => &solana_sdk_ids::stake::ID,
             IndexKey::ProgramId(key) => key,
             IndexKey::SplTokenMint(key) => key,
             IndexKey::SplTokenOwner(key) => key,
         };
-        if !self.account_indexes.include_key(key) {
+        let included = match index_key {
+            IndexKey::NonCirculatingStake => self
+                .account_indexes
+                .contains(&AccountIndex::NonCirculatingStake),
+            IndexKey::ProgramId(_) => self.account_indexes.include_program_id(key),
+            IndexKey::SplTokenMint(_) | IndexKey::SplTokenOwner(_) => {
+                self.account_indexes.include_key(key)
+            }
+        };
+        if !included {
             // the requested key was not indexed in the secondary index, so do a normal scan
             let used_index = false;
             self.scan_accounts(ancestors, bank_id, scan_func, config)?;

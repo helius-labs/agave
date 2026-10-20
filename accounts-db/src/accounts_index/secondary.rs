@@ -26,6 +26,10 @@ impl AccountSecondaryIndexes {
     pub fn contains(&self, index: &AccountIndex) -> bool {
         self.indexes.contains(index)
     }
+    pub fn include_program_id(&self, key: &Pubkey) -> bool {
+        self.contains(&AccountIndex::ProgramId) && self.include_key(key)
+    }
+
     pub fn include_key(&self, key: &Pubkey) -> bool {
         match &self.keys {
             Some(options) => options.exclude ^ options.keys.contains(key),
@@ -42,6 +46,8 @@ pub struct AccountSecondaryIndexesIncludeExclude {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AccountIndex {
+    /// Internal, conservative stake candidates for full RPC supply queries.
+    NonCirculatingStake,
     ProgramId,
     SplTokenMint,
     SplTokenOwner,
@@ -49,6 +55,7 @@ pub enum AccountIndex {
 
 #[derive(Debug, Clone, Copy)]
 pub enum IndexKey {
+    NonCirculatingStake,
     ProgramId(Pubkey),
     SplTokenMint(Pubkey),
     SplTokenOwner(Pubkey),
@@ -452,5 +459,27 @@ mod tests {
         assert_eq!(outer_keys.len(), 2);
         assert!(outer_keys.contains(&outer_key_1));
         assert!(outer_keys.contains(&outer_key_2));
+    }
+}
+
+#[cfg(test)]
+mod non_circulating_stake_index_tests {
+    use super::*;
+    #[test]
+    fn test_supply_index_does_not_change_user_index_selection() {
+        let stake = solana_sdk_ids::stake::id();
+        let other = Pubkey::new_unique();
+        let mut indexes = AccountSecondaryIndexes::default();
+        indexes.indexes.insert(AccountIndex::NonCirculatingStake);
+        assert!(!indexes.include_program_id(&stake));
+        assert!(!indexes.include_program_id(&other));
+        indexes.keys = Some(AccountSecondaryIndexesIncludeExclude {
+            exclude: true,
+            keys: HashSet::from([stake]),
+        });
+        indexes.indexes.insert(AccountIndex::ProgramId);
+        assert!(!indexes.include_program_id(&stake));
+        assert!(indexes.include_program_id(&other));
+        assert!(indexes.contains(&AccountIndex::NonCirculatingStake));
     }
 }

@@ -23,9 +23,9 @@ use {
         accounts_db::{AccountShrinkThreshold, AccountsDbConfig},
         accounts_file::AccountsFileProvider,
         accounts_index::{
-            AccountSecondaryIndexes, AccountsIndexConfig, DEFAULT_NUM_ENTRIES_OVERHEAD,
-            DEFAULT_NUM_ENTRIES_TO_EVICT, IndexLimit, IndexLimitThreshold,
-            MINIMAL_THRESHOLD_NUM_BYTES, ScanFilter,
+            AccountIndex, AccountSecondaryIndexes, AccountsIndexConfig,
+            DEFAULT_NUM_ENTRIES_OVERHEAD, DEFAULT_NUM_ENTRIES_TO_EVICT, IndexLimit,
+            IndexLimitThreshold, MINIMAL_THRESHOLD_NUM_BYTES, ScanFilter,
         },
         partitioned_rewards::PartitionedEpochRewardsConfig,
         utils::{
@@ -545,7 +545,14 @@ pub fn execute(
 
     let contact_debug_interval = value_t_or_exit!(matches, "contact_debug_interval", u64);
 
-    let account_indexes = AccountSecondaryIndexes::from_clap_arg_match(matches)?;
+    let mut account_indexes = AccountSecondaryIndexes::from_clap_arg_match(matches)?;
+    if matches.is_present("rpc_port") && matches.is_present("full_rpc_api") {
+        // Track initialized and delegated stakes with a lockup or tracked withdraw authority.
+        // The querying bank still checks its own clock, owner, state, and balances.
+        account_indexes
+            .indexes
+            .insert(AccountIndex::NonCirculatingStake);
+    }
 
     let restricted_repair_only_mode = matches.is_present("restricted_repair_only_mode");
     let accounts_shrink_optimize_total_space =
