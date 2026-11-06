@@ -4,6 +4,7 @@ use {
     crossbeam_queue::ArrayQueue,
     libc::{_SC_PAGESIZE, munmap, sysconf},
     std::{
+        cell::RefCell,
         ffi::c_void,
         io,
         marker::PhantomData,
@@ -318,6 +319,95 @@ impl Umem for OwnedUmem {
     }
 }
 
+/// An owned UMEM for a single thread whose free frames are a stack: `reserve` returns the frame
+/// released most recently.
+pub struct LifoUmem {
+    memory: PageAlignedMemory,
+    frame_size: u32,
+    capacity: usize,
+    available_frames: RefCell<Vec<FrameOffset>>,
+}
+
+impl LifoUmem {
+    pub fn new(memory: PageAlignedMemory, frame_size: u32) -> Result<Self, io::Error> {
+        debug_assert!(frame_size.is_power_of_two());
+        let capacity = memory.len / frame_size as usize;
+        let available_frames = (0..capacity)
+            .map(|index| FrameOffset(index * frame_size as usize))
+            .collect::<Vec<_>>();
+        Ok(Self {
+            memory,
+            frame_size,
+            capacity,
+            available_frames: RefCell::new(available_frames),
+        })
+    }
+
+    fn push_available_frame(&self, offset: FrameOffset) {
+        let frame_start = offset.0 & !(self.frame_size as usize - 1);
+        let mut available_frames = self.available_frames.borrow_mut();
+        assert!(
+            available_frames.len() < self.capacity,
+            "available UMEM frame stack unexpectedly full"
+        );
+        available_frames.push(FrameOffset(frame_start));
+    }
+}
+
+impl Umem for LifoUmem {
+    type Frame = OwnedUmemFrame;
+
+    fn as_ptr(&self) -> *const u8 {
+        self.memory.ptr.cast_const()
+    }
+
+    fn len(&self) -> usize {
+        self.memory.len
+    }
+
+    fn frame_size(&self) -> usize {
+        self.frame_size as usize
+    }
+
+    fn reserve(&self) -> Option<OwnedUmemFrame> {
+        let FrameOffset(offset) = self.available_frames.borrow_mut().pop()?;
+
+        Some(OwnedUmemFrame { offset, len: 0 })
+    }
+
+    fn release(&self, frame: Self::Frame) {
+        self.push_available_frame(frame.offset());
+    }
+
+    fn release_completed(&self, frame: CompletedFrameOffset) {
+        self.push_available_frame(frame.0);
+    }
+
+    fn received(&self, frame: ReceivedFrame) -> OwnedUmemFrame {
+        OwnedUmemFrame {
+            offset: frame.offset.0.0,
+            len: frame.len,
+        }
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn available(&self) -> usize {
+        self.available_frames.borrow().len()
+    }
+
+    fn map_frame_mut(&self, frame: Self::Frame) -> MappedFrameMut<'_, Self::Frame> {
+        // Safety: `frame` is the ownership token for a reserved UMEM slot. This method consumes
+        // it, so safe callers cannot map or release the same slot again while `bytes` is live.
+        let bytes = unsafe {
+            slice::from_raw_parts_mut(self.memory.ptr.add(frame.offset().0), frame.len())
+        };
+        MappedFrameMut { frame, bytes }
+    }
+}
+
 fn available_frames(capacity: usize, frame_size: u32) -> ArrayQueue<FrameOffset> {
     let available_frames = ArrayQueue::new(capacity);
     for index in 0..capacity {
@@ -434,10 +524,43 @@ impl DerefMut for PageAlignedMemory {
 mod tests {
     use {
         crate::umem::{
-            CompletedFrameOffset, Frame, FrameOffset, ReceivedFrame, RxFrameOffset, SliceUmem, Umem,
+            CompletedFrameOffset, Frame, FrameOffset, LifoUmem, PageAlignedMemory, ReceivedFrame,
+            RxFrameOffset, SliceUmem, Umem,
         },
         std::slice,
     };
+
+    fn lifo_umem(frames: usize) -> LifoUmem {
+        let memory = PageAlignedMemory::alloc(4096, frames).unwrap();
+        LifoUmem::new(memory, 4096).unwrap()
+    }
+
+    #[test]
+    fn test_lifo_reuses_the_last_released_frame_first() {
+        let umem = lifo_umem(4);
+        let first = umem.reserve().unwrap();
+        let second = umem.reserve().unwrap();
+        let first_offset = first.offset().0;
+        let second_offset = second.offset().0;
+
+        umem.release(first);
+        umem.release_completed(CompletedFrameOffset(FrameOffset(second_offset + 5)));
+        assert_eq!(umem.reserve().unwrap().offset().0, second_offset);
+        assert_eq!(umem.reserve().unwrap().offset().0, first_offset);
+    }
+
+    #[test]
+    fn test_lifo_hands_out_every_frame_once() {
+        let umem = lifo_umem(4);
+        assert_eq!(umem.capacity(), 4);
+        let mut offsets = (0..4)
+            .map(|_| umem.reserve().unwrap().offset().0)
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        assert_eq!(offsets, [0, 4096, 8192, 12288]);
+        assert!(umem.reserve().is_none());
+        assert_eq!(umem.available(), 0);
+    }
 
     #[test]
     fn test_map_frame() {
